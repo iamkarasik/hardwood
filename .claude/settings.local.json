@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mvn clean test:*)",
+      "Bash(./mvnw clean test:*)",
+      "Bash(./mvnw test:*)",
+      "Bash(./mvnw compile exec:java:*)",
+      "Bash(./mvnw test-compile:*)",
+      "Bash(.docker-venv/bin/python:*)"
+    ]
+  }
+}
