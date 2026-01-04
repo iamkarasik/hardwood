@@ -12,8 +12,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.RandomAccessFile;
 
-import dev.morling.hardwood.parquet.CompressionCodec;
 import dev.morling.hardwood.parquet.Encoding;
+import dev.morling.hardwood.parquet.compression.Decompressor;
+import dev.morling.hardwood.parquet.compression.DecompressorFactory;
 import dev.morling.hardwood.parquet.encoding.PlainDecoder;
 import dev.morling.hardwood.parquet.encoding.RleBitPackingHybridDecoder;
 import dev.morling.hardwood.parquet.metadata.ColumnMetaData;
@@ -71,13 +72,9 @@ public class PageReader {
         // Update offset for next page
         currentOffset = file.getFilePointer();
 
-        // Decompress if needed (for Milestone 1, only UNCOMPRESSED is supported)
-        if (columnMetaData.codec() != CompressionCodec.UNCOMPRESSED) {
-            throw new UnsupportedOperationException(
-                    "Compression not yet supported (codec: " + columnMetaData.codec() + ")");
-        }
-
-        byte[] uncompressedData = pageData;
+        // Decompress page data
+        Decompressor decompressor = DecompressorFactory.getDecompressor(columnMetaData.codec());
+        byte[] uncompressedData = decompressor.decompress(pageData, pageHeader.uncompressedPageSize());
 
         // Handle different page types
         return switch (pageHeader.type()) {

@@ -41,7 +41,6 @@ public class ParquetFileReader implements AutoCloseable {
 
     public static ParquetFileReader open(Path path) throws IOException {
         RandomAccessFile file = new RandomAccessFile(path.toFile(), "r");
-
         try {
             // Validate file size
             long fileSize = file.length();
@@ -89,8 +88,14 @@ public class ParquetFileReader implements AutoCloseable {
 
             return new ParquetFileReader(file, fileMetaData, schema);
         }
-        catch (IOException e) {
-            file.close();
+        catch (Exception e) {
+            // Close file if there was an error during initialization
+            try {
+                file.close();
+            }
+            catch (IOException closeException) {
+                e.addSuppressed(closeException);
+            }
             throw e;
         }
     }

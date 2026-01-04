@@ -41,3 +41,14 @@ print("\nGenerated plain_uncompressed_with_nulls.parquet:")
 print("  - Encoding: PLAIN (use_dictionary=False)")
 print("  - Compression: UNCOMPRESSED (compression=None)")
 print("  - Data: id=[1,2,3], name=['alice', None, 'charlie']")
+
+# Generate SNAPPY compressed file with same data as plain_uncompressed
+pq.write_table(simple_table, 'src/test/resources/plain_snappy.parquet',
+               use_dictionary=False,
+               compression='snappy',
+               data_page_version='1.0')
+
+print("\nGenerated plain_snappy.parquet:")
+print("  - Encoding: PLAIN (use_dictionary=False)")
+print("  - Compression: SNAPPY (compression='snappy')")
+print("  - Data: id=[1,2,3], value=[100,200,300] - NO NULLS")
