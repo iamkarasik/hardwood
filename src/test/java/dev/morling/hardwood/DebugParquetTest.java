@@ -9,7 +9,7 @@ package dev.morling.hardwood;
 
 import java.nio.file.Paths;
 
-import dev.morling.hardwood.parquet.ParquetFileReader;
+import dev.morling.hardwood.reader.ParquetFileReader;
 
 public class DebugParquetTest {
 
@@ -22,14 +22,14 @@ public class DebugParquetTest {
             System.out.println("Num rows: " + reader.getFileMetaData().numRows());
             System.out.println("Row groups: " + reader.getFileMetaData().rowGroups().size());
             System.out.println("Schema:");
-            System.out.println(reader.getSchema());
+            System.out.println(reader.getFileMetaData().schema());
             System.out.println();
 
             // Check encodings for each column
             var rowGroup = reader.getFileMetaData().rowGroups().get(0);
             for (int i = 0; i < rowGroup.columns().size(); i++) {
                 var col = rowGroup.columns().get(i);
-                System.out.println("Column " + i + ": " + reader.getSchema().getColumn(i).name());
+                System.out.println("Column " + i + ": " + reader.getFileSchema().getColumn(i).name());
                 System.out.println("  Type: " + col.metaData().type());
                 System.out.println("  Codec: " + col.metaData().codec());
                 System.out.println("  Encodings: " + col.metaData().encodings());

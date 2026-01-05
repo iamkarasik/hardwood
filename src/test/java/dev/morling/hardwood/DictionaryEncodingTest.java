@@ -13,12 +13,12 @@ import java.util.List;
 
 import org.junit.jupiter.api.Test;
 
-import dev.morling.hardwood.parquet.ParquetFileReader;
-import dev.morling.hardwood.parquet.column.ColumnReader;
-import dev.morling.hardwood.parquet.metadata.ColumnChunk;
-import dev.morling.hardwood.parquet.metadata.FileMetaData;
-import dev.morling.hardwood.parquet.metadata.RowGroup;
-import dev.morling.hardwood.parquet.schema.Column;
+import dev.morling.hardwood.metadata.ColumnChunk;
+import dev.morling.hardwood.metadata.FileMetaData;
+import dev.morling.hardwood.metadata.RowGroup;
+import dev.morling.hardwood.reader.ColumnReader;
+import dev.morling.hardwood.reader.ParquetFileReader;
+import dev.morling.hardwood.schema.ColumnSchema;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -40,7 +40,7 @@ class DictionaryEncodingTest {
             assertThat(metadata.rowGroups()).hasSize(1);
 
             // Verify schema
-            assertThat(reader.getSchema().getColumnCount()).isEqualTo(2);
+            assertThat(reader.getFileSchema().getColumnCount()).isEqualTo(2);
 
             // Read row group
             RowGroup rowGroup = metadata.rowGroups().get(0);
@@ -48,24 +48,24 @@ class DictionaryEncodingTest {
 
             // Read and verify 'id' column (PLAIN encoded)
             ColumnChunk idColumnChunk = rowGroup.columns().get(0);
-            Column idColumn = reader.getSchema().getColumn(0);
+            ColumnSchema idColumn = reader.getFileSchema().getColumn(0);
             assertThat(idColumn.name()).isEqualTo("id");
 
-            ColumnReader idReader = new ColumnReader(reader.getFile(), idColumn, idColumnChunk);
+            ColumnReader idReader = reader.getColumnReader(idColumn, idColumnChunk);
             List<Object> idValues = idReader.readAll();
             assertThat(idValues).hasSize(5);
             assertThat(idValues).containsExactly(1L, 2L, 3L, 4L, 5L);
 
             // Read and verify 'category' column (DICTIONARY encoded)
             ColumnChunk categoryColumnChunk = rowGroup.columns().get(1);
-            Column categoryColumn = reader.getSchema().getColumn(1);
+            ColumnSchema categoryColumn = reader.getFileSchema().getColumn(1);
             assertThat(categoryColumn.name()).isEqualTo("category");
 
             // Verify dictionary encoding is used
             assertThat(categoryColumnChunk.metaData().encodings())
-                    .contains(dev.morling.hardwood.parquet.Encoding.RLE_DICTIONARY);
+                    .contains(dev.morling.hardwood.metadata.Encoding.RLE_DICTIONARY);
 
-            ColumnReader categoryReader = new ColumnReader(reader.getFile(), categoryColumn, categoryColumnChunk);
+            ColumnReader categoryReader = reader.getColumnReader(categoryColumn, categoryColumnChunk);
             List<Object> categoryValues = categoryReader.readAll();
             assertThat(categoryValues).hasSize(5);
 

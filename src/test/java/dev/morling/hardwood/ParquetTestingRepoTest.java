@@ -18,9 +18,9 @@ import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
-import dev.morling.hardwood.parquet.ParquetFileReader;
-import dev.morling.hardwood.parquet.column.ColumnReader;
-import dev.morling.hardwood.parquet.metadata.FileMetaData;
+import dev.morling.hardwood.metadata.FileMetaData;
+import dev.morling.hardwood.reader.ColumnReader;
+import dev.morling.hardwood.reader.ParquetFileReader;
 
 /**
  * Test reading files from the apache/parquet-testing repository.
@@ -115,8 +115,9 @@ class ParquetTestingRepoTest {
 
         // Shredded variant files (nested structure tests)
         for (int i = 1; i <= 138; i++) {
-            if (i == 3)
+            if (i == 3) {
                 continue; // Skip missing case-003
+            }
             String filename = String.format("shredded_variant/case-%03d", i);
             if (i == 43 || i == 84 || i == 125) {
                 filename += "-INVALID";
@@ -144,15 +145,15 @@ class ParquetTestingRepoTest {
             System.out.println("Version: " + metadata.version());
             System.out.println("Num rows: " + metadata.numRows());
             System.out.println("Row groups: " + metadata.rowGroups().size());
-            System.out.println("Columns: " + reader.getSchema().getColumnCount());
+            System.out.println("Columns: " + reader.getFileSchema().getColumnCount());
 
             // Try to read ALL columns from ALL row groups to verify we can parse everything
             int totalValuesRead = 0;
             for (int rgIdx = 0; rgIdx < metadata.rowGroups().size(); rgIdx++) {
                 var rowGroup = metadata.rowGroups().get(rgIdx);
 
-                for (int colIdx = 0; colIdx < reader.getSchema().getColumnCount(); colIdx++) {
-                    var column = reader.getSchema().getColumn(colIdx);
+                for (int colIdx = 0; colIdx < reader.getFileSchema().getColumnCount(); colIdx++) {
+                    var column = reader.getFileSchema().getColumn(colIdx);
                     var columnChunk = rowGroup.columns().get(colIdx);
 
                     if (rgIdx == 0 && colIdx == 0) {
@@ -162,7 +163,7 @@ class ParquetTestingRepoTest {
                     }
 
                     // Try to create a column reader and read all values
-                    ColumnReader columnReader = new ColumnReader(reader.getFile(), column, columnChunk);
+                    ColumnReader columnReader = reader.getColumnReader(column, columnChunk);
                     List<Object> values = columnReader.readAll();
                     totalValuesRead += values.size();
 

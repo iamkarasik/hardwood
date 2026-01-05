@@ -13,16 +13,16 @@ import java.util.List;
 
 import org.junit.jupiter.api.Test;
 
-import dev.morling.hardwood.parquet.CompressionCodec;
-import dev.morling.hardwood.parquet.ParquetFileReader;
-import dev.morling.hardwood.parquet.PhysicalType;
-import dev.morling.hardwood.parquet.RepetitionType;
-import dev.morling.hardwood.parquet.column.ColumnReader;
-import dev.morling.hardwood.parquet.metadata.ColumnChunk;
-import dev.morling.hardwood.parquet.metadata.FileMetaData;
-import dev.morling.hardwood.parquet.metadata.RowGroup;
-import dev.morling.hardwood.parquet.schema.Column;
-import dev.morling.hardwood.parquet.schema.MessageType;
+import dev.morling.hardwood.metadata.ColumnChunk;
+import dev.morling.hardwood.metadata.CompressionCodec;
+import dev.morling.hardwood.metadata.FileMetaData;
+import dev.morling.hardwood.metadata.PhysicalType;
+import dev.morling.hardwood.metadata.RepetitionType;
+import dev.morling.hardwood.metadata.RowGroup;
+import dev.morling.hardwood.reader.ColumnReader;
+import dev.morling.hardwood.reader.ParquetFileReader;
+import dev.morling.hardwood.schema.ColumnSchema;
+import dev.morling.hardwood.schema.FileSchema;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -41,17 +41,17 @@ class ParquetReaderTest {
             assertThat(metadata.rowGroups()).hasSize(1);
 
             // Verify schema
-            MessageType schema = reader.getSchema();
+            FileSchema schema = reader.getFileSchema();
             assertThat(schema).isNotNull();
             assertThat(schema.getColumnCount()).isEqualTo(2);
 
             // Verify column names and types
-            Column idColumn = schema.getColumn(0);
+            ColumnSchema idColumn = schema.getColumn(0);
             assertThat(idColumn.name()).isEqualTo("id");
             assertThat(idColumn.type()).isEqualTo(PhysicalType.INT64);
             assertThat(idColumn.repetitionType()).isEqualTo(RepetitionType.REQUIRED);
 
-            Column valueColumn = schema.getColumn(1);
+            ColumnSchema valueColumn = schema.getColumn(1);
             assertThat(valueColumn.name()).isEqualTo("value");
             assertThat(valueColumn.type()).isEqualTo(PhysicalType.INT64);
             assertThat(valueColumn.repetitionType()).isEqualTo(RepetitionType.REQUIRED);
@@ -67,7 +67,7 @@ class ParquetReaderTest {
                     .isEqualTo(CompressionCodec.UNCOMPRESSED);
             assertThat(idColumnChunk.metaData().numValues()).isEqualTo(3);
 
-            ColumnReader idReader = new ColumnReader(reader.getFile(), idColumn, idColumnChunk);
+            ColumnReader idReader = reader.getColumnReader(idColumn, idColumnChunk);
             List<Object> idValues = idReader.readAll();
             assertThat(idValues).hasSize(3);
             assertThat(idValues).containsExactly(1L, 2L, 3L);
@@ -78,7 +78,7 @@ class ParquetReaderTest {
                     .isEqualTo(CompressionCodec.UNCOMPRESSED);
             assertThat(valueColumnChunk.metaData().numValues()).isEqualTo(3);
 
-            ColumnReader valueReader = new ColumnReader(reader.getFile(), valueColumn, valueColumnChunk);
+            ColumnReader valueReader = reader.getColumnReader(valueColumn, valueColumnChunk);
             List<Object> valueValues = valueReader.readAll();
             assertThat(valueValues).hasSize(3);
             assertThat(valueValues).containsExactly(100L, 200L, 300L);
@@ -98,17 +98,17 @@ class ParquetReaderTest {
             assertThat(metadata.rowGroups()).hasSize(1);
 
             // Verify schema
-            MessageType schema = reader.getSchema();
+            FileSchema schema = reader.getFileSchema();
             assertThat(schema).isNotNull();
             assertThat(schema.getColumnCount()).isEqualTo(2);
 
             // Verify column names and types
-            Column idColumn = schema.getColumn(0);
+            ColumnSchema idColumn = schema.getColumn(0);
             assertThat(idColumn.name()).isEqualTo("id");
             assertThat(idColumn.type()).isEqualTo(PhysicalType.INT64);
             assertThat(idColumn.repetitionType()).isEqualTo(RepetitionType.REQUIRED);
 
-            Column nameColumn = schema.getColumn(1);
+            ColumnSchema nameColumn = schema.getColumn(1);
             assertThat(nameColumn.name()).isEqualTo("name");
             assertThat(nameColumn.type()).isEqualTo(PhysicalType.BYTE_ARRAY);
             assertThat(nameColumn.repetitionType()).isEqualTo(RepetitionType.OPTIONAL);
@@ -124,7 +124,7 @@ class ParquetReaderTest {
                     .isEqualTo(CompressionCodec.UNCOMPRESSED);
             assertThat(idColumnChunk.metaData().numValues()).isEqualTo(3);
 
-            ColumnReader idReader = new ColumnReader(reader.getFile(), idColumn, idColumnChunk);
+            ColumnReader idReader = reader.getColumnReader(idColumn, idColumnChunk);
             List<Object> idValues = idReader.readAll();
             assertThat(idValues).hasSize(3);
             assertThat(idValues).containsExactly(1L, 2L, 3L);
@@ -135,7 +135,7 @@ class ParquetReaderTest {
                     .isEqualTo(CompressionCodec.UNCOMPRESSED);
             assertThat(nameColumnChunk.metaData().numValues()).isEqualTo(3);
 
-            ColumnReader nameReader = new ColumnReader(reader.getFile(), nameColumn, nameColumnChunk);
+            ColumnReader nameReader = reader.getColumnReader(nameColumn, nameColumnChunk);
             List<Object> nameValues = nameReader.readAll();
             assertThat(nameValues).hasSize(3);
 
@@ -161,17 +161,17 @@ class ParquetReaderTest {
             assertThat(metadata.rowGroups()).hasSize(1);
 
             // Verify schema
-            MessageType schema = reader.getSchema();
+            FileSchema schema = reader.getFileSchema();
             assertThat(schema).isNotNull();
             assertThat(schema.getColumnCount()).isEqualTo(2);
 
             // Verify column names and types
-            Column idColumn = schema.getColumn(0);
+            ColumnSchema idColumn = schema.getColumn(0);
             assertThat(idColumn.name()).isEqualTo("id");
             assertThat(idColumn.type()).isEqualTo(PhysicalType.INT64);
             assertThat(idColumn.repetitionType()).isEqualTo(RepetitionType.REQUIRED);
 
-            Column valueColumn = schema.getColumn(1);
+            ColumnSchema valueColumn = schema.getColumn(1);
             assertThat(valueColumn.name()).isEqualTo("value");
             assertThat(valueColumn.type()).isEqualTo(PhysicalType.INT64);
             assertThat(valueColumn.repetitionType()).isEqualTo(RepetitionType.REQUIRED);
@@ -187,7 +187,7 @@ class ParquetReaderTest {
                     .isEqualTo(CompressionCodec.SNAPPY);
             assertThat(idColumnChunk.metaData().numValues()).isEqualTo(3);
 
-            ColumnReader idReader = new ColumnReader(reader.getFile(), idColumn, idColumnChunk);
+            ColumnReader idReader = reader.getColumnReader(idColumn, idColumnChunk);
             List<Object> idValues = idReader.readAll();
             assertThat(idValues).hasSize(3);
             assertThat(idValues).containsExactly(1L, 2L, 3L);
@@ -198,7 +198,7 @@ class ParquetReaderTest {
                     .isEqualTo(CompressionCodec.SNAPPY);
             assertThat(valueColumnChunk.metaData().numValues()).isEqualTo(3);
 
-            ColumnReader valueReader = new ColumnReader(reader.getFile(), valueColumn, valueColumnChunk);
+            ColumnReader valueReader = reader.getColumnReader(valueColumn, valueColumnChunk);
             List<Object> valueValues = valueReader.readAll();
             assertThat(valueValues).hasSize(3);
             assertThat(valueValues).containsExactly(100L, 200L, 300L);

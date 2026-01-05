@@ -220,8 +220,8 @@ A from-scratch implementation of Apache Parquet reader/writer in Java with no de
 
 ### 8.2 Codec Implementations
 - [x] UNCOMPRESSED (passthrough)
-- [ ] GZIP (java.util.zip, no external dependency)
-- [ ] SNAPPY (snappy-java)
+- [x] GZIP (java.util.zip, no external dependency)
+- [x] SNAPPY (snappy-java)
 - [ ] LZ4 (lz4-java)
 - [ ] ZSTD (zstd-jni)
 - [ ] LZO (lzo-java, optional)
@@ -324,11 +324,11 @@ A from-scratch implementation of Apache Parquet reader/writer in Java with no de
 - [ ] **Validate**: Read/write nested structures
 
 ### Milestone 4: Compression
-- [ ] GZIP integration
-- [ ] Snappy integration
+- [x] GZIP integration
+- [x] Snappy integration
 - [ ] ZSTD integration
 - [ ] LZ4 integration
-- [ ] **Validate**: Read files with various codecs from parquet-testing
+- [x] **Validate**: Read files with various codecs from parquet-testing
 
 ### Milestone 5: Advanced Encodings
 - [ ] DELTA_BINARY_PACKED
@@ -383,10 +383,10 @@ A from-scratch implementation of Apache Parquet reader/writer in Java with no de
 - [x] data/binary_truncated_min_max.parquet
 - [x] data/byte_array_decimal.parquet
 - [ ] data/byte_stream_split.zstd.parquet (ZSTD)
-- [ ] data/byte_stream_split_extended.gzip.parquet (GZIP)
+- [ ] data/byte_stream_split_extended.gzip.parquet (BYTE_STREAM_SPLIT encoding)
 - [x] data/column_chunk_key_value_metadata.parquet
-- [ ] data/concatenated_gzip_members.parquet (GZIP)
-- [ ] data/data_index_bloom_encoding_stats.parquet (GZIP)
+- [ ] data/concatenated_gzip_members.parquet (Concatenated GZIP members)
+- [x] data/data_index_bloom_encoding_stats.parquet
 - [x] data/data_index_bloom_encoding_with_length.parquet
 - [x] data/datapage_v1-corrupt-checksum.parquet
 - [x] data/datapage_v1-snappy-compressed-checksum.parquet
@@ -441,7 +441,7 @@ A from-scratch implementation of Apache Parquet reader/writer in Java with no de
 - [x] data/repeated_primitive_no_list.parquet
 - [x] data/rle-dict-snappy-checksum.parquet
 - [x] data/rle-dict-uncompressed-corrupt-checksum.parquet
-- [ ] data/rle_boolean_encoding.parquet (GZIP)
+- [ ] data/rle_boolean_encoding.parquet (Non-standard GZIP format)
 - [x] data/single_nan.parquet
 - [x] data/sort_columns.parquet
 - [x] data/unknown-logical-type.parquet
@@ -587,7 +587,7 @@ A from-scratch implementation of Apache Parquet reader/writer in Java with no de
 
 ### Test Summary
 
-**Current Pass Rate: 188/215 (87.4%)**
+**Current Pass Rate: 189/215 (87.9%)**
 
 Progress:
 - Started (first column only): 163/215 (75.8%)
@@ -597,13 +597,15 @@ Progress:
 - After boolean bit-packing fix: 182/215 (84.7%)
 - After DATA_PAGE_V2 support: 184/215 (85.6%)
 - After FIXED_LEN_BYTE_ARRAY support: 188/215 (87.4%)
+- After GZIP compression support: 189/215 (87.9%)
 
-Remaining Failures by Category (27 total):
+Remaining Failures by Category (26 total):
 - ZSTD compression: 5 files
-- GZIP compression: 4 files
 - LZ4 compression: 3 files
 - LZ4_RAW compression: 2 files
+- Special GZIP formats: 2 files (concatenated members, non-standard variant)
 - Delta encoding issues: 4 files (DELTA_BINARY_PACKED, DELTA_BYTE_ARRAY)
+- BYTE_STREAM_SPLIT encoding: 1 file
 - Snappy decompression failures: 2 files
 - Other edge cases: 7 files (EOF errors, malformed data, unknown types, etc.)
 
