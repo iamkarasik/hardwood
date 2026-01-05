@@ -1,6 +1,18 @@
-# My OSS Project
+# Hardwood
 
-An open-source project bootstrapped using the [ModiTect OSS Quickstart](https://github.com/moditect/oss-quickstart) archetype.
+A minimal dependency parser for the Apache Parquet file format.
+
+## Project Vision
+
+Now:
+
+* Implement the Parquet file format avoiding any 3rd party dependencies other than for compression algorithms (e.g. Snappy)
+* Be correct: Support all Parquet files which are supported by the canonical [parquet-java](https://github.com/apache/parquet-java) library
+
+In the future:
+
+* Be fast: as fast or faster as parquet-java
+* Add a Parquet file writer
 
 ## Build
 
