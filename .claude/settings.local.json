@@ -6,7 +6,18 @@
       "Bash(./mvnw test:*)",
       "Bash(./mvnw compile exec:java:*)",
       "Bash(./mvnw test-compile:*)",
-      "Bash(.docker-venv/bin/python:*)"
+      "Bash(.docker-venv/bin/python:*)",
+      "Bash(python3:*)",
+      "Bash(java:*)",
+      "Bash(./mvnw clean:*)",
+      "Bash(.venv/bin/python:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(tee:*)",
+      "WebFetch(domain:github.com)",
+      "Bash(comm:*)",
+      "Bash(./mvnw compile:*)",
+      "Bash(javac:*)"
     ]
   }
 }

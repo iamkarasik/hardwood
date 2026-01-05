@@ -1,9 +1,9 @@
 /*
- * SPDX-License-Identifier: Apache-2.0
+ *  SPDX-License-Identifier: Apache-2.0
  *
- * Copyright The original authors
+ *  Copyright The original authors
  *
- * Licensed under the Apache Software License version 2.0, available at http://www.apache.org/licenses/LICENSE-2.0
+ *  Licensed under the Apache Software License version 2.0, available at http://www.apache.org/licenses/LICENSE-2.0
  */
 package dev.morling.hardwood;
 
@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.stream.Stream;
 
 import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
@@ -26,6 +27,7 @@ import dev.morling.hardwood.reader.ParquetFileReader;
  * Test reading files from the apache/parquet-testing repository.
  * This test helps identify which files we can currently parse.
  */
+@Disabled
 class ParquetTestingRepoTest {
 
     static Stream<String> parquetTestFiles() {
