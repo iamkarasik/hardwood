@@ -10,33 +10,51 @@ package dev.morling.hardwood;
 import java.nio.file.Paths;
 
 import dev.morling.hardwood.reader.ParquetFileReader;
+import dev.morling.hardwood.reader.RowReader;
+import dev.morling.hardwood.row.Row;
 
 public class DebugParquetTest {
 
     public static void main(String[] args) throws Exception {
-        String file = "src/test/resources/plain_uncompressed_with_nulls.parquet";
+        String file = "src/test/resources/yellow_tripdata_2025-01.parquet";
 
         System.out.println("=== " + file + " ===");
         try (ParquetFileReader reader = ParquetFileReader.open(Paths.get(file))) {
             System.out.println("Version: " + reader.getFileMetaData().version());
             System.out.println("Num rows: " + reader.getFileMetaData().numRows());
             System.out.println("Row groups: " + reader.getFileMetaData().rowGroups().size());
-            System.out.println("Schema:");
-            System.out.println(reader.getFileMetaData().schema());
+            System.out.println("Created by: " + reader.getFileMetaData().createdBy());
             System.out.println();
 
-            // Check encodings for each column
-            var rowGroup = reader.getFileMetaData().rowGroups().get(0);
-            for (int i = 0; i < rowGroup.columns().size(); i++) {
-                var col = rowGroup.columns().get(i);
-                System.out.println("Column " + i + ": " + reader.getFileSchema().getColumn(i).name());
-                System.out.println("  Type: " + col.metaData().type());
-                System.out.println("  Codec: " + col.metaData().codec());
-                System.out.println("  Encodings: " + col.metaData().encodings());
-                System.out.println("  Num values: " + col.metaData().numValues());
-                System.out.println("  Data page offset: " + col.metaData().dataPageOffset());
-                System.out.println("  Dictionary page offset: " + col.metaData().dictionaryPageOffset());
+            // Show file schema with logical types
+            System.out.println("File Schema:");
+            System.out.println(reader.getFileSchema());
+            System.out.println();
+
+            // Show first 3 columns in detail
+            System.out.println("Column Details:");
+            for (int i = 0; i < Math.min(3, reader.getFileSchema().getColumnCount()); i++) {
+                var col = reader.getFileSchema().getColumn(i);
+                System.out.println("  Column " + i + ": " + col.name());
+                System.out.println("    Physical: " + col.type());
+                System.out.println("    Logical: " + col.logicalType());
                 System.out.println();
+            }
+
+            try (RowReader rowReader = reader.createRowReader()) {
+                System.out.println("Reading first 5 rows with timestamp conversion:");
+                int i = 0;
+                for (Row row : rowReader) {
+                    System.out.println(String.format("Row %d: VendorID=%s, Pickup=%s, Dropoff=%s",
+                            i,
+                            row.isNull(0) ? "null" : row.getInt(0),
+                            row.isNull(1) ? "null" : row.getTimestamp(1),
+                            row.isNull(2) ? "null" : row.getTimestamp(2)));
+                    if (i >= 4) {
+                        break;
+                    }
+                    i++;
+                }
             }
         }
     }

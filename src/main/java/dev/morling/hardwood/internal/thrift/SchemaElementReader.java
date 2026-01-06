@@ -9,6 +9,7 @@ package dev.morling.hardwood.internal.thrift;
 
 import java.io.IOException;
 
+import dev.morling.hardwood.metadata.LogicalType;
 import dev.morling.hardwood.metadata.PhysicalType;
 import dev.morling.hardwood.metadata.RepetitionType;
 import dev.morling.hardwood.metadata.SchemaElement;
@@ -35,6 +36,7 @@ public class SchemaElementReader {
         RepetitionType repetitionType = null;
         Integer numChildren = null;
         Integer fieldId = null;
+        LogicalType logicalType = null;
 
         while (true) {
             ThriftCompactReader.FieldHeader header = reader.readFieldHeader();
@@ -83,6 +85,14 @@ public class SchemaElementReader {
                         reader.skipField(header.type());
                     }
                     break;
+                case 10: // logicalType (optional)
+                    if (header.type() == 0x0C) { // STRUCT
+                        logicalType = LogicalTypeReader.read(reader);
+                    }
+                    else {
+                        reader.skipField(header.type());
+                    }
+                    break;
                 case 16: // field_id (optional)
                     if (header.type() == 0x05) {
                         fieldId = reader.readI32();
@@ -97,6 +107,6 @@ public class SchemaElementReader {
             }
         }
 
-        return new SchemaElement(name, type, typeLength, repetitionType, numChildren, fieldId);
+        return new SchemaElement(name, type, typeLength, repetitionType, numChildren, fieldId, logicalType);
     }
 }

@@ -16,7 +16,8 @@ public record SchemaElement(
         Integer typeLength,
         RepetitionType repetitionType,
         Integer numChildren,
-        Integer fieldId) {
+        Integer fieldId,
+        LogicalType logicalType) {
 
     public boolean isGroup() {
         return type == null;

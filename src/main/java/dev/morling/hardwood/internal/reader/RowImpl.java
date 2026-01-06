@@ -7,9 +7,16 @@
  */
 package dev.morling.hardwood.internal.reader;
 
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.util.UUID;
 
+import dev.morling.hardwood.internal.conversion.LogicalTypeConverter;
 import dev.morling.hardwood.row.Row;
+import dev.morling.hardwood.schema.ColumnSchema;
 import dev.morling.hardwood.schema.FileSchema;
 
 /**
@@ -117,6 +124,127 @@ public class RowImpl implements Row {
     @Override
     public String getString(String name) {
         return getString(getColumnIndex(name));
+    }
+
+    @Override
+    public LocalDate getDate(int position) {
+        Object value = values[position];
+        if (value == null) {
+            throw new NullPointerException("Column " + position + " is null");
+        }
+
+        ColumnSchema column = schema.getColumn(position);
+        Object converted = LogicalTypeConverter.convert(value, column.type(), column.logicalType());
+
+        if (!(converted instanceof LocalDate)) {
+            throw new ClassCastException("Column " + position + " (" + column.name() + ") is not a DATE type");
+        }
+        return (LocalDate) converted;
+    }
+
+    @Override
+    public LocalDate getDate(String name) {
+        return getDate(getColumnIndex(name));
+    }
+
+    @Override
+    public LocalTime getTime(int position) {
+        Object value = values[position];
+        if (value == null) {
+            throw new NullPointerException("Column " + position + " is null");
+        }
+
+        ColumnSchema column = schema.getColumn(position);
+        Object converted = LogicalTypeConverter.convert(value, column.type(), column.logicalType());
+
+        if (!(converted instanceof LocalTime)) {
+            throw new ClassCastException("Column " + position + " (" + column.name() + ") is not a TIME type");
+        }
+        return (LocalTime) converted;
+    }
+
+    @Override
+    public LocalTime getTime(String name) {
+        return getTime(getColumnIndex(name));
+    }
+
+    @Override
+    public Instant getTimestamp(int position) {
+        Object value = values[position];
+        if (value == null) {
+            throw new NullPointerException("Column " + position + " is null");
+        }
+
+        ColumnSchema column = schema.getColumn(position);
+        Object converted = LogicalTypeConverter.convert(value, column.type(), column.logicalType());
+
+        if (!(converted instanceof Instant)) {
+            throw new ClassCastException("Column " + position + " (" + column.name() + ") is not a TIMESTAMP type");
+        }
+        return (Instant) converted;
+    }
+
+    @Override
+    public Instant getTimestamp(String name) {
+        return getTimestamp(getColumnIndex(name));
+    }
+
+    @Override
+    public BigDecimal getDecimal(int position) {
+        Object value = values[position];
+        if (value == null) {
+            throw new NullPointerException("Column " + position + " is null");
+        }
+
+        ColumnSchema column = schema.getColumn(position);
+        Object converted = LogicalTypeConverter.convert(value, column.type(), column.logicalType());
+
+        if (!(converted instanceof BigDecimal)) {
+            throw new ClassCastException("Column " + position + " (" + column.name() + ") is not a DECIMAL type");
+        }
+        return (BigDecimal) converted;
+    }
+
+    @Override
+    public BigDecimal getDecimal(String name) {
+        return getDecimal(getColumnIndex(name));
+    }
+
+    @Override
+    public UUID getUuid(int position) {
+        Object value = values[position];
+        if (value == null) {
+            throw new NullPointerException("Column " + position + " is null");
+        }
+
+        ColumnSchema column = schema.getColumn(position);
+        Object converted = LogicalTypeConverter.convert(value, column.type(), column.logicalType());
+
+        if (!(converted instanceof UUID)) {
+            throw new ClassCastException("Column " + position + " (" + column.name() + ") is not a UUID type");
+        }
+        return (UUID) converted;
+    }
+
+    @Override
+    public UUID getUuid(String name) {
+        return getUuid(getColumnIndex(name));
+    }
+
+    @Override
+    public Object getObject(int position) {
+        Object value = values[position];
+        if (value == null) {
+            return null;
+        }
+
+        ColumnSchema column = schema.getColumn(position);
+        return LogicalTypeConverter.convert(value, column.type(), column.logicalType());
+    }
+
+    @Override
+    public Object getObject(String name) {
+        return getObject(getColumnIndex(name));
     }
 
     @Override

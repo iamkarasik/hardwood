@@ -7,6 +7,12 @@
  */
 package dev.morling.hardwood.row;
 
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.util.UUID;
+
 /**
  * Represents a single row in a Parquet file with typed accessor methods.
  */
@@ -46,6 +52,36 @@ public interface Row {
     String getString(int position);
 
     String getString(String name);
+
+    // Logical type accessors - DATE
+    LocalDate getDate(int position);
+
+    LocalDate getDate(String name);
+
+    // Logical type accessors - TIME
+    LocalTime getTime(int position);
+
+    LocalTime getTime(String name);
+
+    // Logical type accessors - TIMESTAMP
+    Instant getTimestamp(int position);
+
+    Instant getTimestamp(String name);
+
+    // Logical type accessors - DECIMAL
+    BigDecimal getDecimal(int position);
+
+    BigDecimal getDecimal(String name);
+
+    // Logical type accessors - UUID
+    UUID getUuid(int position);
+
+    UUID getUuid(String name);
+
+    // Generic accessor with automatic logical type conversion
+    Object getObject(int position);
+
+    Object getObject(String name);
 
     // Null checking
     boolean isNull(int position);

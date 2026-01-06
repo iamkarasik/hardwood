@@ -79,7 +79,8 @@ public class FileSchema {
                     element.type(),
                     element.repetitionType(),
                     element.typeLength(),
-                    i));
+                    i,
+                    element.logicalType()));
         }
 
         return new FileSchema(root.name(), columns);

@@ -7,6 +7,7 @@
  */
 package dev.morling.hardwood.schema;
 
+import dev.morling.hardwood.metadata.LogicalType;
 import dev.morling.hardwood.metadata.PhysicalType;
 import dev.morling.hardwood.metadata.RepetitionType;
 
@@ -18,7 +19,8 @@ public record ColumnSchema(
         PhysicalType type,
         RepetitionType repetitionType,
         Integer typeLength,
-        int columnIndex) {
+        int columnIndex,
+        LogicalType logicalType) {
 
     public int getMaxDefinitionLevel() {
         // For flat schemas:
@@ -51,6 +53,9 @@ public record ColumnSchema(
         }
         sb.append(" ");
         sb.append(name);
+        if (logicalType != null) {
+            sb.append(" (").append(logicalType).append(")");
+        }
         sb.append(";");
         return sb.toString();
     }

@@ -9,30 +9,61 @@ package dev.morling.hardwood.metadata;
 
 /**
  * Logical types that provide semantic meaning to physical types.
- * For Milestone 1, we support basic types only.
+ * Sealed interface allows for parameterized types (e.g., DECIMAL with scale/precision).
  */
-public enum LogicalType {
-    STRING,
-    ENUM,
-    UUID,
-    INT_8,
-    INT_16,
-    INT_32,
-    INT_64,
-    UINT_8,
-    UINT_16,
-    UINT_32,
-    UINT_64,
-    DECIMAL,
-    DATE,
-    TIME_MILLIS,
-    TIME_MICROS,
-    TIMESTAMP_MILLIS,
-    TIMESTAMP_MICROS,
-    INTERVAL,
-    JSON,
-    BSON,
-    LIST,
-    MAP,
-    MAP_KEY_VALUE;
+public sealed
+interface LogicalType
+permits LogicalType.StringType,LogicalType.EnumType,LogicalType.UuidType,LogicalType.IntType,LogicalType.DecimalType,LogicalType.DateType,LogicalType.TimeType,LogicalType.TimestampType,LogicalType.IntervalType,LogicalType.JsonType,LogicalType.BsonType,LogicalType.ListType,LogicalType.MapType
+{
+
+    // Simple types (no parameters)
+    record StringType() implements LogicalType {}
+
+    record EnumType() implements LogicalType {}
+
+    record UuidType() implements LogicalType {}
+
+    record DateType() implements LogicalType {}
+
+    record JsonType() implements LogicalType {}
+
+    record BsonType() implements LogicalType {}
+
+    record IntervalType() implements LogicalType {}
+
+    // Parameterized: Integer types with bitWidth and sign
+    record IntType(int bitWidth, boolean isSigned) implements LogicalType {
+        public IntType {
+            if (bitWidth != 8 && bitWidth != 16 && bitWidth != 32 && bitWidth != 64) {
+                throw new IllegalArgumentException("Invalid bit width: " + bitWidth);
+            }
+        }
+    }
+
+    // Parameterized: Decimal with scale and precision
+    record DecimalType(int scale, int precision) implements LogicalType {
+        public DecimalType {
+            if (precision <= 0) {
+                throw new IllegalArgumentException("Precision must be positive: " + precision);
+            }
+            if (scale < 0) {
+                throw new IllegalArgumentException("Scale cannot be negative: " + scale);
+            }
+        }
+    }
+
+    // Parameterized: Time with unit and UTC adjustment
+    record TimeType(boolean isAdjustedToUTC, TimeUnit unit) implements LogicalType {
+        public enum TimeUnit { MILLIS, MICROS, NANOS }
+    }
+
+    // Parameterized: Timestamp with unit and UTC adjustment
+    record TimestampType(boolean isAdjustedToUTC, TimeUnit unit) implements LogicalType {
+        public enum TimeUnit { MILLIS, MICROS, NANOS }
+    }
+
+    // Complex types (not fully supported in Milestone 1)
+    record ListType() implements LogicalType {}
+
+    record MapType() implements LogicalType {}
 }
