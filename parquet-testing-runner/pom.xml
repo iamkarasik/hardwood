@@ -29,6 +29,28 @@
       <artifactId>hardwood-core</artifactId>
     </dependency>
 
+    <!-- Compression libraries needed for test files -->
+    <dependency>
+      <groupId>org.xerial.snappy</groupId>
+      <artifactId>snappy-java</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.lz4</groupId>
+      <artifactId>lz4-java</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.github.luben</groupId>
+      <artifactId>zstd-jni</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.aayushatharva.brotli4j</groupId>
+      <artifactId>brotli4j</artifactId>
+      <scope>test</scope>
+    </dependency>
+
     <!-- Parquet reference implementation -->
     <dependency>
       <groupId>org.apache.parquet</groupId>

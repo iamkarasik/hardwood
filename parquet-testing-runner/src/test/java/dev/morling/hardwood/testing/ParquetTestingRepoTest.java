@@ -5,17 +5,18 @@
  *
  *  Licensed under the Apache Software License version 2.0, available at http://www.apache.org/licenses/LICENSE-2.0
  */
-package dev.morling.hardwood;
+package dev.morling.hardwood.testing;
 
-import java.nio.file.Files;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Stream;
 
-import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
@@ -28,6 +29,7 @@ import dev.morling.hardwood.reader.ParquetFileReader;
  * This test helps identify which files we can currently parse.
  */
 @Disabled
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class ParquetTestingRepoTest {
 
     static Stream<String> parquetTestFiles() {
@@ -130,14 +132,15 @@ class ParquetTestingRepoTest {
         return files.stream();
     }
 
+    @BeforeAll
+    void setUp() throws IOException {
+        ParquetTestingRepoCloner.ensureCloned();
+    }
+
     @ParameterizedTest
     @MethodSource("parquetTestFiles")
     void testReadParquetFile(String relativePath) throws Exception {
-        Path filePath = Paths.get("parquet-testing", relativePath);
-
-        // Skip test if file doesn't exist (repo might not be cloned)
-        Assumptions.assumeTrue(Files.exists(filePath),
-                "Skipping " + relativePath + " - file not found (parquet-testing repo may not be cloned)");
+        Path filePath = Paths.get("target", "parquet-testing", relativePath);
 
         System.out.println("\n=== Testing: " + relativePath + " ===");
 
