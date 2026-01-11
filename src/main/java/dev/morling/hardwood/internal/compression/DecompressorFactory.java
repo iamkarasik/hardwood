@@ -21,6 +21,20 @@ public class DecompressorFactory {
     private static final Lz4Decompressor LZ4 = new Lz4Decompressor();
     private static final Lz4RawDecompressor LZ4_RAW = new Lz4RawDecompressor();
 
+    // Brotli is lazily initialized to avoid loading native library until needed
+    private static volatile BrotliDecompressor BROTLI;
+
+    private static BrotliDecompressor getBrotli() {
+        if (BROTLI == null) {
+            synchronized (DecompressorFactory.class) {
+                if (BROTLI == null) {
+                    BROTLI = new BrotliDecompressor();
+                }
+            }
+        }
+        return BROTLI;
+    }
+
     /**
      * Get a decompressor for the given compression codec.
      *
@@ -36,8 +50,8 @@ public class DecompressorFactory {
             case ZSTD -> ZSTD;
             case LZ4 -> LZ4;
             case LZ4_RAW -> LZ4_RAW;
+            case BROTLI -> getBrotli();
             case LZO -> throw new UnsupportedOperationException("LZO compression not yet supported");
-            case BROTLI -> throw new UnsupportedOperationException("BROTLI compression not yet supported");
         };
     }
 }

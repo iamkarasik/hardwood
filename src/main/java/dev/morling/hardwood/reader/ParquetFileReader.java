@@ -112,7 +112,7 @@ public class ParquetFileReader implements AutoCloseable {
         return FileSchema.fromSchemaElements(fileMetaData.schema());
     }
 
-    public ColumnReader getColumnReader(ColumnSchema idColumn, ColumnChunk idColumnChunk) {
+    public ColumnReader getColumnReader(ColumnSchema idColumn, ColumnChunk idColumnChunk) throws IOException {
         return new ColumnReader(file, idColumn, idColumnChunk);
     }
 

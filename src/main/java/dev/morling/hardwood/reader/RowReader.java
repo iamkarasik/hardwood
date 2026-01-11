@@ -98,8 +98,13 @@ public class RowReader implements Iterable<PqRow>, AutoCloseable {
         RowGroup rowGroup = rowGroups.get(currentRowGroupIndex);
         currentColumnReaders = new ArrayList<>();
 
-        for (int i = 0; i < schema.getColumnCount(); i++) {
-            currentColumnReaders.add(new ColumnReader(file, schema.getColumn(i), rowGroup.columns().get(i)));
+        try {
+            for (int i = 0; i < schema.getColumnCount(); i++) {
+                currentColumnReaders.add(new ColumnReader(file, schema.getColumn(i), rowGroup.columns().get(i)));
+            }
+        }
+        catch (IOException e) {
+            throw new UncheckedIOException(e);
         }
     }
 

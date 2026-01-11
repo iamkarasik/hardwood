@@ -9,6 +9,7 @@ module dev.morling.hardwood {
     requires static snappy.java;
     requires static com.github.luben.zstd_jni;
     requires static org.lz4.java;
+    requires static com.aayushatharva.brotli4j;
     exports dev.morling.hardwood.row;
     exports dev.morling.hardwood.metadata;
     exports dev.morling.hardwood.reader;

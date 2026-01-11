@@ -467,8 +467,8 @@ A from-scratch implementation of Apache Parquet reader/writer in Java with no de
 - [x] SNAPPY (snappy-java)
 - [x] LZ4 (lz4-java) - supports both Hadoop and raw LZ4 formats
 - [x] ZSTD (zstd-jni)
+- [x] BROTLI (brotli4j)
 - [ ] LZO (lzo-java, optional)
-- [ ] BROTLI (brotli4j, optional)
 
 ---
 
@@ -634,7 +634,7 @@ Progress:
 
 Remaining Failures by Category (8 total):
 - Bad data files (intentionally malformed): 6 files (includes fixed_length_byte_array which has truncated page data - PyArrow also fails)
-- Brotli compression: 1 file
+- Java array size limit: 1 file (large_string_map.brotli - column chunk exceeds 2GB, parquet-java has same limitation)
 - Other edge cases: 1 file (case-046)
 
 ### Test Categories

@@ -41,7 +41,7 @@ public class ColumnReader {
     // Lookahead buffer (single value)
     private ValueWithLevels lookahead;
 
-    public ColumnReader(RandomAccessFile file, ColumnSchema column, ColumnChunk columnChunk) {
+    public ColumnReader(RandomAccessFile file, ColumnSchema column, ColumnChunk columnChunk) throws IOException {
         this.column = column;
         this.columnMetaData = columnChunk.metaData();
         this.pageReader = new PageReader(file, columnMetaData, column);

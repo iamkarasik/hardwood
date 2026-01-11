@@ -41,10 +41,22 @@ public class PageReader {
     private long valuesRead = 0;
     private Object[] dictionary = null;
 
-    public PageReader(RandomAccessFile file, ColumnMetaData columnMetaData, ColumnSchema column) {
+    public PageReader(RandomAccessFile file, ColumnMetaData columnMetaData, ColumnSchema column)
+            throws IOException {
         this.file = file;
         this.columnMetaData = columnMetaData;
         this.column = column;
+
+        // Validate total uncompressed size doesn't exceed Java's array size limit.
+        // This catches oversized column chunks early, before attempting to read pages.
+        long totalUncompressedSize = columnMetaData.totalUncompressedSize();
+        if (totalUncompressedSize > Integer.MAX_VALUE) {
+            throw new IOException(
+                    "Column chunk uncompressed size (" + totalUncompressedSize + " bytes) exceeds maximum allowed " +
+                            "(Integer.MAX_VALUE = " + Integer.MAX_VALUE + " bytes). Column: " + column.name() + ". " +
+                            "This is usually caused by a Parquet writer creating oversized column chunks. " +
+                            "Consider using smaller page sizes when writing.");
+        }
 
         // Use dictionary page offset if present and > 0.
         // Offset 0 is invalid (PAR1 magic) and should be treated as "no dictionary page".
