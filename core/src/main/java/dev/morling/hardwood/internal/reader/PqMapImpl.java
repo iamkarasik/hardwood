@@ -7,17 +7,10 @@
  */
 package dev.morling.hardwood.internal.reader;
 
-import java.math.BigDecimal;
-import java.nio.charset.StandardCharsets;
-import java.time.Instant;
-import java.time.LocalDate;
-import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.UUID;
 
-import dev.morling.hardwood.internal.conversion.LogicalTypeConverter;
 import dev.morling.hardwood.row.PqMap;
 import dev.morling.hardwood.row.PqType;
 import dev.morling.hardwood.schema.SchemaNode;
@@ -87,95 +80,21 @@ public class PqMapImpl implements PqMap {
         }
 
         @Override
-        @SuppressWarnings("unchecked")
         public <K> K getKey(PqType<K> type) {
-            return (K) convertValue(key, type, keySchema);
+            return ValueConverter.convert(key, type, keySchema);
         }
 
         @Override
-        @SuppressWarnings("unchecked")
         public <V> V getValue(PqType<V> type) {
             if (value == null) {
                 return null;
             }
-            return (V) convertValue(value, type, valueSchema);
+            return ValueConverter.convert(value, type, valueSchema);
         }
 
         @Override
         public boolean isValueNull() {
             return value == null;
-        }
-
-        private Object convertValue(Object rawValue, PqType<?> type, SchemaNode fieldSchema) {
-            if (rawValue == null) {
-                return null;
-            }
-
-            // Handle primitive types
-            if (type instanceof PqType.BooleanType) {
-                return rawValue;
-            }
-            else if (type instanceof PqType.Int32Type) {
-                return rawValue;
-            }
-            else if (type instanceof PqType.Int64Type) {
-                return rawValue;
-            }
-            else if (type instanceof PqType.FloatType) {
-                return rawValue;
-            }
-            else if (type instanceof PqType.DoubleType) {
-                return rawValue;
-            }
-            else if (type instanceof PqType.BinaryType) {
-                return rawValue;
-            }
-            else if (type instanceof PqType.StringType) {
-                if (rawValue instanceof String) {
-                    return rawValue;
-                }
-                return new String((byte[]) rawValue, StandardCharsets.UTF_8);
-            }
-            else if (type instanceof PqType.DateType) {
-                return convertLogicalType(rawValue, fieldSchema, LocalDate.class);
-            }
-            else if (type instanceof PqType.TimeType) {
-                return convertLogicalType(rawValue, fieldSchema, LocalTime.class);
-            }
-            else if (type instanceof PqType.TimestampType) {
-                return convertLogicalType(rawValue, fieldSchema, Instant.class);
-            }
-            else if (type instanceof PqType.DecimalType) {
-                return convertLogicalType(rawValue, fieldSchema, BigDecimal.class);
-            }
-            else if (type instanceof PqType.UuidType) {
-                return convertLogicalType(rawValue, fieldSchema, UUID.class);
-            }
-            else if (type instanceof PqType.RowType) {
-                Object[] arrayValue = (Object[]) rawValue;
-                SchemaNode.GroupNode groupSchema = (SchemaNode.GroupNode) fieldSchema;
-                return new PqRowImpl(arrayValue, groupSchema);
-            }
-            else if (type instanceof PqType.ListType) {
-                List<?> listValue = (List<?>) rawValue;
-                SchemaNode.GroupNode listSchema = (SchemaNode.GroupNode) fieldSchema;
-                return new PqListImpl(listValue, listSchema);
-            }
-            else if (type instanceof PqType.MapType) {
-                List<?> mapValue = (List<?>) rawValue;
-                SchemaNode.GroupNode mapSchemaGroup = (SchemaNode.GroupNode) fieldSchema;
-                return new PqMapImpl(mapValue, mapSchemaGroup);
-            }
-            else {
-                throw new IllegalArgumentException("Unknown PqType: " + type.getClass().getSimpleName());
-            }
-        }
-
-        @SuppressWarnings("unchecked")
-        private <T> T convertLogicalType(Object rawValue, SchemaNode fieldSchema, Class<T> expectedClass) {
-            SchemaNode.PrimitiveNode primitive = (SchemaNode.PrimitiveNode) fieldSchema;
-            Object converted = LogicalTypeConverter.convert(rawValue, primitive.type(), primitive.logicalType());
-            return (T) converted;
         }
     }
 }
