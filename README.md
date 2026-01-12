@@ -14,6 +14,82 @@ In the future:
 * Be fast: As fast or faster as parquet-java
 * Be complete: Add a Parquet file writer
 
+## Set-Up
+
+### Adding the Core Dependency
+
+**Maven:**
+
+```xml
+<dependency>
+    <groupId>dev.hardwoodhq</groupId>
+    <artifactId>hardwood-core</artifactId>
+    <version>1.0.0-SNAPSHOT</version>
+</dependency>
+```
+
+**Gradle:**
+
+```groovy
+implementation 'dev.hardwoodhq:hardwood-core:1.0.0-SNAPSHOT'
+```
+
+### Compression Libraries
+
+Hardwood supports reading Parquet files compressed with GZIP (built into Java), Snappy, ZSTD, LZ4, and Brotli. The compression libraries are optional dependencies—add only the ones you need:
+
+**Maven:**
+
+```xml
+<!-- Snappy compression -->
+<dependency>
+    <groupId>org.xerial.snappy</groupId>
+    <artifactId>snappy-java</artifactId>
+    <version>1.1.10.8</version>
+</dependency>
+
+<!-- ZSTD compression -->
+<dependency>
+    <groupId>com.github.luben</groupId>
+    <artifactId>zstd-jni</artifactId>
+    <version>1.5.7-6</version>
+</dependency>
+
+<!-- LZ4 compression -->
+<dependency>
+    <groupId>org.lz4</groupId>
+    <artifactId>lz4-java</artifactId>
+    <version>1.8.1</version>
+</dependency>
+
+<!-- Brotli compression -->
+<dependency>
+    <groupId>com.aayushatharva.brotli4j</groupId>
+    <artifactId>brotli4j</artifactId>
+    <version>1.20.0</version>
+</dependency>
+```
+
+**Gradle:**
+
+```groovy
+// Snappy compression
+implementation 'org.xerial.snappy:snappy-java:1.1.10.8'
+
+// ZSTD compression
+implementation 'com.github.luben:zstd-jni:1.5.7-6'
+
+// LZ4 compression
+implementation 'org.lz4:lz4-java:1.8.1'
+
+// Brotli compression
+implementation 'com.aayushatharva.brotli4j:brotli4j:1.20.0'
+```
+
+If you attempt to read a file using a compression codec whose library is not on the classpath, Hardwood will throw an exception with a message indicating which dependency to add.
+
+---
+
 ## Usage
 
 ### Row-Oriented Reading (PqRow API)

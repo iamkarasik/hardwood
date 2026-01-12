@@ -19,18 +19,54 @@ public class DecompressorFactory {
      *
      * @param codec the compression codec
      * @return the appropriate decompressor
-     * @throws UnsupportedOperationException if the codec is not supported
+     * @throws UnsupportedOperationException if the codec is not supported or the required library is missing
      */
     public static Decompressor getDecompressor(CompressionCodec codec) {
         return switch (codec) {
             case UNCOMPRESSED -> new UncompressedDecompressor();
-            case SNAPPY -> new SnappyDecompressor();
             case GZIP -> new GzipDecompressor();
-            case ZSTD -> new ZstdDecompressor();
-            case LZ4 -> new Lz4Decompressor();
-            case LZ4_RAW -> new Lz4RawDecompressor();
-            case BROTLI -> new BrotliDecompressor();
-            case LZO -> throw new UnsupportedOperationException("LZO compression not yet supported");
+            case SNAPPY -> {
+                checkClassAvailable("org.xerial.snappy.Snappy",
+                        "SNAPPY",
+                        "org.xerial.snappy:snappy-java");
+                yield new SnappyDecompressor();
+            }
+            case ZSTD -> {
+                checkClassAvailable("com.github.luben.zstd.Zstd",
+                        "ZSTD",
+                        "com.github.luben:zstd-jni");
+                yield new ZstdDecompressor();
+            }
+            case LZ4 -> {
+                checkClassAvailable("net.jpountz.lz4.LZ4Factory",
+                        "LZ4",
+                        "org.lz4:lz4-java");
+                yield new Lz4Decompressor();
+            }
+            case LZ4_RAW -> {
+                checkClassAvailable("net.jpountz.lz4.LZ4Factory",
+                        "LZ4_RAW",
+                        "org.lz4:lz4-java");
+                yield new Lz4RawDecompressor();
+            }
+            case BROTLI -> {
+                checkClassAvailable("com.aayushatharva.brotli4j.Brotli4jLoader",
+                        "BROTLI",
+                        "com.aayushatharva.brotli4j:brotli4j");
+                yield new BrotliDecompressor();
+            }
+            case LZO -> throw new UnsupportedOperationException("LZO compression is not supported");
         };
+    }
+
+    private static void checkClassAvailable(String className, String codecName, String dependency) {
+        try {
+            Class.forName(className);
+        }
+        catch (ClassNotFoundException e) {
+            throw new UnsupportedOperationException(
+                    "Cannot read " + codecName + "-compressed Parquet file: required library not found. " +
+                            "Add the following dependency to your project: " + dependency);
+        }
     }
 }
