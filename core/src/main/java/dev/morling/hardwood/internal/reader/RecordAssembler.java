@@ -58,58 +58,36 @@ public class RecordAssembler {
     }
 
     /**
-     * Assemble values from all columns into a row based on the schema structure.
+     * Assemble the current record from all column batches.
+     * Each batch must have had {@link ColumnBatch#nextRecord()} called before this method.
      */
-    public Object[] assembleRow(List<ColumnBatch> batches, int recordIndex) {
+    public Object[] assembleRow(List<ColumnBatch> batches) {
         int rootSize = schema.getRootNode().children().size();
         Object[] record = new Object[rootSize];
 
-        // Process each column independently
         for (ColumnBatch batch : batches) {
             int colIndex = batch.getColumn().columnIndex();
-            processColumn(batch, recordIndex, schema.getFieldPaths().get(colIndex), record);
+            processColumn(batch, schema.getFieldPaths().get(colIndex), record);
         }
 
         return record;
     }
 
     /**
-     * Process a single column, inserting all its values into the record.
-     * Scans the batch to find values for the specified record (delimited by rep=0).
+     * Process a single column's current record, inserting values into the record.
      */
-    private void processColumn(ColumnBatch batch, int recordIndex, FieldPath path, Object[] record) {
+    private void processColumn(ColumnBatch batch, FieldPath path, Object[] record) {
         int maxRepLevel = batch.getColumn().maxRepetitionLevel();
-
-        // Indices track position at each repetition level (like a multi-dimensional odometer)
         int[] indices = new int[maxRepLevel + 1];
 
-        // Scan to find values for this record (records are delimited by rep=0)
-        int currentRecord = 0;
-        boolean first = true;
+        while (batch.hasValue()) {
+            int r = batch.repetitionLevel();
+            int d = batch.definitionLevel();
+            Object value = batch.value();
+            batch.advance();
 
-        for (int i = 0; i < batch.getValueCount(); i++) {
-            int r = batch.getRepetitionLevel(i);
-
-            // Check for record boundary (rep=0 after first value)
-            if (!first && r == 0) {
-                currentRecord++;
-                if (currentRecord > recordIndex) {
-                    break;  // Past our record, done
-                }
-            }
-            first = false;
-
-            // Process values belonging to our record
-            if (currentRecord == recordIndex) {
-                int d = batch.getDefinitionLevel(i);
-                Object value = batch.getValue(i);
-
-                // Update indices based on repetition level
-                updateIndices(indices, r);
-
-                // Insert value at the computed position
-                insertAtPath(record, path, indices, d, value);
-            }
+            updateIndices(indices, r);
+            insertAtPath(record, path, indices, d, value);
         }
     }
 

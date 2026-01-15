@@ -10,11 +10,20 @@ package dev.morling.hardwood.internal.reader;
 import dev.morling.hardwood.schema.ColumnSchema;
 
 /**
- * A batch of values with definition and repetition levels from a column.
- * Used internally by RowReader for batched parallel column fetching.
+ * A cursor over column values with definition and repetition levels.
+ * Iterates record by record, with each record containing one or more values.
  *
- * <p>Values are stored with their rep/def levels for record assembly
- * by {@link RecordAssembler}.</p>
+ * <p>Usage:</p>
+ * <pre>
+ * while (batch.nextRecord()) {
+ *     while (batch.hasValue()) {
+ *         int r = batch.repetitionLevel();
+ *         int d = batch.definitionLevel();
+ *         Object v = batch.value();
+ *         batch.advance();
+ *     }
+ * }
+ * </pre>
  */
 public final class ColumnBatch {
 
@@ -23,6 +32,10 @@ public final class ColumnBatch {
     private final int[] repetitionLevels;
     private final int recordCount;
     private final ColumnSchema column;
+
+    private int position = -1;      // Current value position (-1 = before first record)
+    private int recordEnd = 0;      // End position of current record
+    private int recordsRead = 0;    // Number of records consumed
 
     public ColumnBatch(Object[] values, int[] definitionLevels, int[] repetitionLevels,
                        int recordCount, ColumnSchema column) {
@@ -48,37 +61,59 @@ public final class ColumnBatch {
     }
 
     /**
-     * Number of values in this batch (may be greater than record count for repeated columns).
+     * Advance to the next record. Returns false if no more records.
      */
-    public int getValueCount() {
+    public boolean nextRecord() {
+        if (recordsRead >= recordCount) {
+            return false;
+        }
+        position = recordEnd;
+        recordEnd = findRecordEnd(position);
+        recordsRead++;
+        return true;
+    }
+
+    private int findRecordEnd(int start) {
+        for (int i = start + 1; i < values.length; i++) {
+            if (repetitionLevels[i] == 0) {
+                return i;
+            }
+        }
         return values.length;
     }
 
     /**
-     * Get the value at the given index.
+     * True if there are more values in the current record.
      */
-    public Object getValue(int index) {
-        return values[index];
+    public boolean hasValue() {
+        return position < recordEnd;
     }
 
     /**
-     * Get the definition level at the given index.
+     * Repetition level of the current value.
      */
-    public int getDefinitionLevel(int index) {
-        return definitionLevels[index];
+    public int repetitionLevel() {
+        return repetitionLevels[position];
     }
 
     /**
-     * Get the repetition level at the given index.
+     * Definition level of the current value.
      */
-    public int getRepetitionLevel(int index) {
-        return repetitionLevels[index];
+    public int definitionLevel() {
+        return definitionLevels[position];
     }
 
     /**
-     * A value along with its definition and repetition levels.
-     * Used for record assembly from column data.
+     * The current value.
      */
-    public record ValueWithLevels(Object value, int defLevel, int repLevel) {
+    public Object value() {
+        return values[position];
+    }
+
+    /**
+     * Advance to the next value within the current record.
+     */
+    public void advance() {
+        position++;
     }
 }

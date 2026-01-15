@@ -42,11 +42,5 @@ public record FieldPath(
             boolean isMap,
             int numChildren
     ) {
-        /**
-         * True if this step represents a container (struct, list, or map).
-         */
-        public boolean isContainer() {
-            return numChildren > 0 || isList || isMap;
-        }
     }
 }

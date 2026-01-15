@@ -46,7 +46,7 @@ public class RowReader implements Iterable<PqRow>, AutoCloseable {
 
     // Current batch state
     private List<ColumnBatch> currentBatches;
-    private int currentBatchPosition;
+    private int currentBatchRecordsRead;
     private long totalRowsRead;
     private boolean closed;
 
@@ -79,7 +79,7 @@ public class RowReader implements Iterable<PqRow>, AutoCloseable {
         this.currentRowGroupIndex = 0;
         this.currentColumnReaders = null;
         this.currentBatches = null;
-        this.currentBatchPosition = 0;
+        this.currentBatchRecordsRead = 0;
         this.totalRowsRead = 0;
         this.closed = false;
     }
@@ -170,7 +170,7 @@ public class RowReader implements Iterable<PqRow>, AutoCloseable {
             }
         }
 
-        currentBatchPosition = 0;
+        currentBatchRecordsRead = 0;
     }
 
     @Override
@@ -185,14 +185,11 @@ public class RowReader implements Iterable<PqRow>, AutoCloseable {
      */
     private class PqRowIterator implements Iterator<PqRow> {
 
+        private final RecordAssembler assembler = new RecordAssembler(schema);
+
         @Override
         public boolean hasNext() {
-            if (closed) {
-                return false;
-            }
-
-            // Check if we've read all rows
-            if (totalRowsRead >= totalRows) {
+            if (closed || totalRowsRead >= totalRows) {
                 return false;
             }
 
@@ -203,7 +200,7 @@ public class RowReader implements Iterable<PqRow>, AutoCloseable {
 
             // Check if we need to fetch a new batch
             if (currentBatches == null ||
-                    (currentBatchPosition >= currentBatches.get(0).size() && totalRowsRead < totalRows)) {
+                    (currentBatchRecordsRead >= currentBatches.get(0).size() && totalRowsRead < totalRows)) {
                 try {
                     fetchNextBatch();
                 }
@@ -212,11 +209,9 @@ public class RowReader implements Iterable<PqRow>, AutoCloseable {
                 }
             }
 
-            // Check if the current batch has more rows
             return currentBatches != null &&
-                    currentBatches.size() > 0 &&
-                    currentBatches.get(0).size() > 0 &&
-                    currentBatchPosition < currentBatches.get(0).size();
+                    !currentBatches.isEmpty() &&
+                    currentBatchRecordsRead < currentBatches.get(0).size();
         }
 
         @Override
@@ -225,11 +220,14 @@ public class RowReader implements Iterable<PqRow>, AutoCloseable {
                 throw new NoSuchElementException("No more rows available");
             }
 
-            // Use RecordAssembler to assemble row from raw column batches
-            RecordAssembler assembler = new RecordAssembler(schema);
-            Object[] rowValues = assembler.assembleRow(currentBatches, currentBatchPosition);
+            // Advance all batches to the next record
+            for (ColumnBatch batch : currentBatches) {
+                batch.nextRecord();
+            }
 
-            currentBatchPosition++;
+            Object[] rowValues = assembler.assembleRow(currentBatches);
+
+            currentBatchRecordsRead++;
             totalRowsRead++;
 
             return new PqRowImpl(rowValues, schema);
