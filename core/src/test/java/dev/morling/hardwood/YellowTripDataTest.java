@@ -7,9 +7,14 @@
  */
 package dev.morling.hardwood;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
+
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -19,9 +24,7 @@ import dev.morling.hardwood.reader.ParquetFileReader;
 import dev.morling.hardwood.reader.RowReader;
 import dev.morling.hardwood.row.PqRow;
 import dev.morling.hardwood.row.PqType;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.within;
+import dev.morling.hardwood.schema.ColumnSchema;
 
 /**
  * Tests for reading NYC Yellow Taxi trip data.
@@ -122,6 +125,57 @@ public class YellowTripDataTest {
                 assertThat(row4.getValue(PqType.INT32, "DOLocationID")).isEqualTo(116);
                 assertThat(row4.getValue(PqType.DOUBLE, "fare_amount")).isEqualTo(5.8);
                 assertThat(row4.getValue(PqType.DOUBLE, "total_amount")).isEqualTo(8.3);
+            }
+        }
+    }
+
+    @Test
+    void printRows() throws Exception {
+        Path parquetFile = Paths.get("src/test/resources/yellow_tripdata_sample.parquet");
+
+        try (ParquetFileReader fileReader = ParquetFileReader.open(parquetFile)) {
+            List<ColumnSchema> columns = fileReader.getFileSchema().getColumns();
+            DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+                    .withZone(ZoneId.of("UTC"));
+
+            // Print header
+            StringBuilder header = new StringBuilder();
+            StringBuilder separator = new StringBuilder();
+            for (ColumnSchema col : columns) {
+                String name = col.name();
+                int width = Math.max(name.length(), 12);
+                header.append(String.format("%-" + width + "s | ", name));
+                separator.append("-".repeat(width)).append("-+-");
+            }
+            System.out.println(header);
+            System.out.println(separator);
+
+            // Print first 10 rows
+            try (RowReader rowReader = fileReader.createRowReader()) {
+                int count = 0;
+                for (PqRow row : rowReader) {
+                    if (count++ >= 10) {
+                        break;
+                    }
+
+                    StringBuilder line = new StringBuilder();
+                    for (ColumnSchema col : columns) {
+                        Object value = row.getValue(col.toPqType(), col.name());
+                        String formatted;
+                        if (value == null) {
+                            formatted = "null";
+                        } else if (value instanceof Instant inst) {
+                            formatted = fmt.format(inst);
+                        } else if (value instanceof Double d) {
+                            formatted = String.format("%.2f", d);
+                        } else {
+                            formatted = value.toString();
+                        }
+                        int width = Math.max(col.name().length(), 12);
+                        line.append(String.format("%-" + width + "s | ", formatted));
+                    }
+                    System.out.println(line);
+                }
             }
         }
     }

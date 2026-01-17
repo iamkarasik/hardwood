@@ -332,6 +332,26 @@ vibe coding (i.e. blindly accepting AI-generated changes without understanding t
 While there's currently a focus on quick iteration (closing feature gaps),
 the aspiration is to build a high quality code base which is maintainable, extensible, performant, and safe.
 
+## Performance Testing
+
+These are the results from parsing files of the NYC Yellow Taxi Trip data set (2025-01 to 2025-11),
+running on a Macbook Pro M3 Max.
+The test parses all files and adds up three columns.
+
+```
+=== Performance Test Results (2026-01-17) ===
+Files processed: 11
+Total rows: 44,417,596
+
+Contender            |   Time (s) |   passenger_count |     trip_distance |       fare_amount
+---------------------+------------+-------------------+-------------------+------------------
+Hardwood             |      23.53 |        43,991,423 |    303,521,661.96 |    801,793,105.07
+parquet-java         |      84.31 |        43,991,423 |    303,521,661.96 |    801,793,105.07
+```
+
+Note that Hardwood parallelizes processing of column batches across CPU cores; hence, the absolute result is better
+than parquet-java, but per-core performance is worse. No optimizations have been made at this point.
+
 ## Implementation Status & Roadmap
 
 A from-scratch implementation of Apache Parquet reader/writer in Java with no dependencies except compression libraries.

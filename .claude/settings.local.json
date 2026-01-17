@@ -62,7 +62,8 @@
       "Bash(timeout 60 ./mvnw test:*)",
       "Bash(mvn compile:*)",
       "WebFetch(domain:mvnrepository.com)",
-      "Bash(mvn test:*)"
+      "Bash(mvn test:*)",
+      "WebFetch(domain:www.nyc.gov)"
     ]
   }
 }
