@@ -25,11 +25,11 @@ public class PqMapImpl implements PqMap {
     /**
      * Constructor for a map from assembled data.
      *
-     * @param rawEntries list of Object[] where each array is [key, value]
+     * @param map the MutableMap containing key-value entries
      * @param mapSchema the MAP schema node
      */
-    public PqMapImpl(List<?> rawEntries, SchemaNode.GroupNode mapSchema) {
-        if (rawEntries == null || rawEntries.isEmpty()) {
+    public PqMapImpl(MutableMap map, SchemaNode.GroupNode mapSchema) {
+        if (map == null || map.size() == 0) {
             this.entries = Collections.emptyList();
             return;
         }
@@ -40,9 +40,10 @@ public class PqMapImpl implements PqMap {
         SchemaNode valueSchema = keyValueGroup.children().get(1);
 
         List<Entry> entryList = new ArrayList<>();
-        for (Object rawEntry : rawEntries) {
-            Object[] keyValuePair = (Object[]) rawEntry;
-            entryList.add(new EntryImpl(keyValuePair[0], keyValuePair[1], keySchema, valueSchema));
+        for (MutableStruct entry : map.entries()) {
+            if (entry != null) {
+                entryList.add(new EntryImpl(entry.getChild(0), entry.getChild(1), keySchema, valueSchema));
+            }
         }
         this.entries = Collections.unmodifiableList(entryList);
     }

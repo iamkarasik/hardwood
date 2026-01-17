@@ -7,9 +7,7 @@
  */
 package dev.morling.hardwood.internal.reader;
 
-import java.util.ArrayList;
 import java.util.List;
-import java.util.function.Supplier;
 
 import dev.morling.hardwood.schema.FieldPath;
 import dev.morling.hardwood.schema.FileSchema;
@@ -61,9 +59,9 @@ public class RecordAssembler {
      * Assemble the current record from all column batches.
      * Each batch must have had {@link ColumnBatch#nextRecord()} called before this method.
      */
-    public Object[] assembleRow(List<ColumnBatch> batches) {
+    public MutableStruct assembleRow(List<ColumnBatch> batches) {
         int rootSize = schema.getRootNode().children().size();
-        Object[] record = new Object[rootSize];
+        MutableStruct record = new MutableStruct(rootSize);
 
         for (ColumnBatch batch : batches) {
             int colIndex = batch.getColumn().columnIndex();
@@ -76,7 +74,7 @@ public class RecordAssembler {
     /**
      * Process a single column's current record, inserting values into the record.
      */
-    private void processColumn(ColumnBatch batch, FieldPath path, Object[] record) {
+    private void processColumn(ColumnBatch batch, FieldPath path, MutableStruct record) {
         int maxRepLevel = batch.getColumn().maxRepetitionLevel();
         int[] indices = new int[maxRepLevel + 1];
 
@@ -115,90 +113,47 @@ public class RecordAssembler {
     /**
      * Insert a value into the record at the position determined by the path and indices.
      */
-    private void insertAtPath(Object[] record, FieldPath path, int[] indices,
-                               int defLevel, Object value) {
-        Object current = record;
+    private void insertAtPath(MutableStruct record, FieldPath path, int[] indices,
+                              int defLevel, Object value) {
+        MutableContainer current = record;
         int indexPtr = 0;
 
         FieldPath.PathStep[] steps = path.steps();
         for (int level = 0; level < steps.length; level++) {
             FieldPath.PathStep step = steps[level];
 
-            // Stop if this level is not defined (NULL)
             if (step.definitionLevel() > defLevel) {
                 return;
             }
 
-            if (step.isList() || step.isMap()) {
-                // Get or create list container at this struct field
-                // (For nested lists, current may already be a List - skip in that case)
-                if (current instanceof Object[] struct) {
-                    @SuppressWarnings("unchecked")
-                    List<Object> list = (List<Object>) struct[step.fieldIndex()];
-                    if (list == null) {
-                        list = new ArrayList<>();
-                        struct[step.fieldIndex()] = list;
-                    }
-                    current = list;
-                }
-
-            } else if (step.isRepeated()) {
-                // Navigate to element at current index within the list
-                @SuppressWarnings("unchecked")
-                List<Object> list = (List<Object>) current;
+            if (step.isRepeated()) {
                 int idx = indices[++indexPtr];
 
-                if (step.numChildren() > 1) {
-                    // Multi-field struct element (e.g., key_value in MAP)
-                    ensureListSize(list, idx, () -> new Object[step.numChildren()]);
-                    current = list.get(idx);
-                } else {
-                    // Determine element type from next step (if any)
-                    boolean isLastStep = (level == steps.length - 1);
-                    FieldPath.PathStep nextStep = isLastStep ? null : steps[level + 1];
-
-                    if (isLastStep || nextStep.numChildren() == 0) {
-                        // Primitive list element - set value directly
-                        if (defLevel == path.maxDefLevel()) {
-                            ensureListSize(list, idx, () -> null);
-                            list.set(idx, value);
-                        }
-                        return;
-                    } else if (nextStep.isList() || nextStep.isMap()) {
-                        // Nested list
-                        ensureListSize(list, idx, ArrayList::new);
-                        current = list.get(idx);
-                    } else {
-                        // Struct element
-                        ensureListSize(list, idx, () -> new Object[nextStep.numChildren()]);
-                        current = list.get(idx);
-                        level++;  // Skip next step - we've already created/navigated into it
+                if (step.isContainer()) {
+                    current = current.getOrCreateChild(idx, step);
+                }
+                else {
+                    // Primitive element - set value and return
+                    if (defLevel == path.maxDefLevel()) {
+                        current.setChild(idx, value);
+                    }
+                    return;
+                }
+            }
+            else if (step.isContainer()) {
+                // Skip nested container if previous element step already created it
+                if ((step.isList() || step.isMap()) && level > 0) {
+                    FieldPath.PathStep prev = steps[level - 1];
+                    if (prev.isRepeated() && (prev.isList() || prev.isMap())) {
+                        continue;
                     }
                 }
-
-            } else if (step.numChildren() > 0) {
-                // Navigate into struct field
-                Object[] struct = (Object[]) current;
-                Object child = struct[step.fieldIndex()];
-                if (child == null) {
-                    child = new Object[step.numChildren()];
-                    struct[step.fieldIndex()] = child;
-                }
-                current = child;
+                current = current.getOrCreateChild(step.fieldIndex(), step);
             }
         }
 
-        // Set leaf value (only if fully defined)
         if (defLevel == path.maxDefLevel()) {
-            if (current instanceof Object[] struct) {
-                struct[path.leafFieldIndex()] = value;
-            }
-        }
-    }
-
-    private void ensureListSize(List<Object> list, int idx, Supplier<Object> elementFactory) {
-        while (list.size() <= idx) {
-            list.add(elementFactory.get());
+            current.setChild(path.leafFieldIndex(), value);
         }
     }
 }

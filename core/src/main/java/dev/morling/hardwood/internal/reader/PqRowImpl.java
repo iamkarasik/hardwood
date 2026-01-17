@@ -19,13 +19,13 @@ import dev.morling.hardwood.schema.SchemaNode;
  */
 public class PqRowImpl implements PqRow {
 
-    private final Object[] values;
+    private final MutableStruct values;
     private final SchemaNode.GroupNode schema;
 
     /**
      * Constructor for top-level rows.
      */
-    public PqRowImpl(Object[] values, FileSchema fileSchema) {
+    public PqRowImpl(MutableStruct values, FileSchema fileSchema) {
         this.values = values;
         this.schema = fileSchema.getRootNode();
     }
@@ -33,14 +33,14 @@ public class PqRowImpl implements PqRow {
     /**
      * Constructor for nested struct rows.
      */
-    public PqRowImpl(Object[] values, SchemaNode.GroupNode structSchema) {
+    public PqRowImpl(MutableStruct values, SchemaNode.GroupNode structSchema) {
         this.values = values;
         this.schema = structSchema;
     }
 
     @Override
     public <T> T getValue(PqType<T> type, int index) {
-        Object rawValue = values[index];
+        Object rawValue = values.getChild(index);
         SchemaNode fieldSchema = schema.children().get(index);
         return ValueConverter.convert(rawValue, type, fieldSchema);
     }
@@ -48,19 +48,19 @@ public class PqRowImpl implements PqRow {
     @Override
     public <T> T getValue(PqType<T> type, String name) {
         int index = getFieldIndex(name);
-        Object rawValue = values[index];
+        Object rawValue = values.getChild(index);
         SchemaNode fieldSchema = schema.children().get(index);
         return ValueConverter.convert(rawValue, type, fieldSchema);
     }
 
     @Override
     public boolean isNull(int index) {
-        return values[index] == null;
+        return values.getChild(index) == null;
     }
 
     @Override
     public boolean isNull(String name) {
-        return values[getFieldIndex(name)] == null;
+        return values.getChild(getFieldIndex(name)) == null;
     }
 
     @Override

@@ -116,4 +116,13 @@ public final class ColumnBatch {
     public void advance() {
         position++;
     }
+
+    @Override
+    public String toString() {
+        return "ColumnBatch[column=" + column.name() +
+                ", records=" + recordCount +
+                ", values=" + values.length +
+                ", position=" + position +
+                ", recordsRead=" + recordsRead + "]";
+    }
 }

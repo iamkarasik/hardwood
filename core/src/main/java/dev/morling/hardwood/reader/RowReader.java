@@ -18,6 +18,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 
 import dev.morling.hardwood.internal.reader.ColumnBatch;
+import dev.morling.hardwood.internal.reader.MutableStruct;
 import dev.morling.hardwood.internal.reader.PqRowImpl;
 import dev.morling.hardwood.internal.reader.RecordAssembler;
 import dev.morling.hardwood.metadata.RowGroup;
@@ -225,7 +226,7 @@ public class RowReader implements Iterable<PqRow>, AutoCloseable {
                 batch.nextRecord();
             }
 
-            Object[] rowValues = assembler.assembleRow(currentBatches);
+            MutableStruct rowValues = assembler.assembleRow(currentBatches);
 
             currentBatchRecordsRead++;
             totalRowsRead++;

@@ -13,7 +13,6 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.Arrays;
-import java.util.List;
 import java.util.UUID;
 
 import dev.morling.hardwood.internal.conversion.LogicalTypeConverter;
@@ -97,15 +96,15 @@ final class ValueConverter {
             }
             case PqType.RowType t -> {
                 validateGroupType(schema, false, false);
-                yield new PqRowImpl((Object[]) rawValue, (SchemaNode.GroupNode) schema);
+                yield new PqRowImpl((MutableStruct) rawValue, (SchemaNode.GroupNode) schema);
             }
             case PqType.ListType t -> {
                 validateGroupType(schema, true, false);
-                yield new PqListImpl((List<?>) rawValue, (SchemaNode.GroupNode) schema);
+                yield new PqListImpl((MutableList) rawValue, (SchemaNode.GroupNode) schema);
             }
             case PqType.MapType t -> {
                 validateGroupType(schema, false, true);
-                yield new PqMapImpl((List<?>) rawValue, (SchemaNode.GroupNode) schema);
+                yield new PqMapImpl((MutableMap) rawValue, (SchemaNode.GroupNode) schema);
             }
         };
     }

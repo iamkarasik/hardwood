@@ -8,7 +8,6 @@
 package dev.morling.hardwood.internal.reader;
 
 import java.util.Iterator;
-import java.util.List;
 
 import dev.morling.hardwood.row.PqList;
 import dev.morling.hardwood.row.PqType;
@@ -19,10 +18,10 @@ import dev.morling.hardwood.schema.SchemaNode;
  */
 public class PqListImpl implements PqList {
 
-    private final List<?> elements;
+    private final MutableList elements;
     private final SchemaNode elementSchema;
 
-    public PqListImpl(List<?> elements, SchemaNode.GroupNode listSchema) {
+    public PqListImpl(MutableList elements, SchemaNode.GroupNode listSchema) {
         this.elements = elements;
         this.elementSchema = listSchema.getListElement();
     }
@@ -32,7 +31,7 @@ public class PqListImpl implements PqList {
         if (elementSchema == null) {
             throw new IllegalStateException("List has no element schema");
         }
-        return () -> new ConvertingIterator<>(elements.iterator(), elementType);
+        return () -> new ConvertingIterator<>(elements.elements().iterator(), elementType);
     }
 
     @Override
@@ -42,7 +41,7 @@ public class PqListImpl implements PqList {
 
     @Override
     public boolean isEmpty() {
-        return elements.isEmpty();
+        return elements.size() == 0;
     }
 
     private class ConvertingIterator<T> implements Iterator<T> {

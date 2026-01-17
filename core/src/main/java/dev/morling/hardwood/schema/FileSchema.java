@@ -214,74 +214,100 @@ public class FileSchema {
     // ==================== Field Path Building ====================
 
     private static List<FieldPath> buildFieldPaths(GroupNode rootNode) {
-        List<FieldPath> paths = new ArrayList<>();
-        List<FieldPath.PathStep> currentPath = new ArrayList<>();
-        buildFieldPathsRecursive(rootNode, currentPath, paths, -1);
-        return paths;
+        PathBuilder builder = new PathBuilder();
+        for (int i = 0; i < rootNode.children().size(); i++) {
+            buildPath(rootNode.children().get(i), rootNode, i, builder);
+        }
+        return builder.results();
     }
 
-    private static void buildFieldPathsRecursive(SchemaNode node, List<FieldPath.PathStep> path,
-                                                  List<FieldPath> paths, int fieldIndexInParent) {
-        if (node instanceof SchemaNode.PrimitiveNode prim) {
-            paths.add(new FieldPath(
-                    path.toArray(new FieldPath.PathStep[0]),
-                    fieldIndexInParent,
-                    prim.maxDefinitionLevel(),
-                    prim.maxRepetitionLevel()
-            ));
-            return;
+    /**
+     * Build field paths recursively.
+     */
+    private static void buildPath(SchemaNode node, SchemaNode parent, int fieldIndex, PathBuilder path) {
+        FieldPath.PathStep step = createStep(node, parent, fieldIndex);
+        path.push(step);
+
+        switch (node) {
+            case SchemaNode.PrimitiveNode prim -> path.materialize(fieldIndex, prim.maxDefinitionLevel());
+            case SchemaNode.GroupNode group -> {
+                if (group.isList()) {
+                    buildPath(group.getListElement(), group, 0, path);
+                }
+                else if (group.isMap()) {
+                    buildPath(group.children().get(0), group, 0, path);
+                }
+                else {
+                    for (int i = 0; i < group.children().size(); i++) {
+                        buildPath(group.children().get(i), group, i, path);
+                    }
+                }
+            }
         }
 
-        SchemaNode.GroupNode group = (SchemaNode.GroupNode) node;
+        path.pop();
+    }
 
-        for (int i = 0; i < group.children().size(); i++) {
-            SchemaNode child = group.children().get(i);
+    /**
+     * Create the appropriate step for a node based on its type and parent context.
+     */
+    private static FieldPath.PathStep createStep(SchemaNode node, SchemaNode parent, int fieldIndex) {
+        boolean parentIsList = parent instanceof SchemaNode.GroupNode pg && pg.isList();
+        boolean parentIsMap = parent instanceof SchemaNode.GroupNode pg && pg.isMap();
+        boolean isRepeated = parentIsList || parentIsMap;
 
-            boolean childIsList = child instanceof SchemaNode.GroupNode g && g.isList();
-            boolean childIsMap = child instanceof SchemaNode.GroupNode g && g.isMap();
+        int defLevel = node.maxDefinitionLevel();
+        String name = parentIsList ? "element" : parentIsMap ? "key_value" : node.name();
+        int idx = isRepeated ? 0 : fieldIndex;
 
-            FieldPath.PathStep step = new FieldPath.PathStep(
-                    i,
-                    child.maxDefinitionLevel(),
-                    child.maxRepetitionLevel(),
-                    child.repetitionType() == RepetitionType.REPEATED,
-                    childIsList,
-                    childIsMap,
-                    child instanceof SchemaNode.GroupNode g ? g.children().size() : 0
-            );
-
-            path.add(step);
-            buildFieldPathsRecursive(child, path, paths, i);
-            path.remove(path.size() - 1);
-        }
+        return switch (node) {
+            case SchemaNode.PrimitiveNode prim -> FieldPath.PathStep.forPrimitive(name, idx, defLevel, isRepeated);
+            case SchemaNode.GroupNode group -> {
+                boolean isList = !parentIsMap && group.isList();
+                boolean isMap = !parentIsMap && group.isMap();
+                int numChildren = (isList || isMap) ? 0 : group.children().size();
+                yield FieldPath.PathStep.forGroup(name, idx, defLevel, isRepeated, isList, isMap, numChildren);
+            }
+        };
     }
 
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append("message ").append(name).append(" {\n");
-        appendNode(sb, rootNode, 1);
+        for (SchemaNode child : rootNode.children()) {
+            appendNode(sb, child, 1);
+        }
         sb.append("}");
         return sb.toString();
     }
 
     private void appendNode(StringBuilder sb, SchemaNode node, int indent) {
-        if (node instanceof SchemaNode.GroupNode group) {
-            for (SchemaNode child : group.children()) {
-                appendNode(sb, child, indent);
+        String prefix = "  ".repeat(indent);
+        switch (node) {
+            case SchemaNode.GroupNode group -> {
+                sb.append(prefix);
+                sb.append(group.repetitionType().name().toLowerCase());
+                sb.append(" group ").append(group.name());
+                if (group.convertedType() != null) {
+                    sb.append(" (").append(group.convertedType()).append(")");
+                }
+                sb.append(" {\n");
+                for (SchemaNode child : group.children()) {
+                    appendNode(sb, child, indent + 1);
+                }
+                sb.append(prefix).append("}\n");
             }
-        }
-        else if (node instanceof SchemaNode.PrimitiveNode prim) {
-            sb.append("  ".repeat(indent));
-            sb.append(prim.repetitionType().name().toLowerCase());
-            sb.append(" ");
-            sb.append(prim.type().name().toLowerCase());
-            sb.append(" ");
-            sb.append(prim.name());
-            if (prim.logicalType() != null) {
-                sb.append(" (").append(prim.logicalType()).append(")");
+            case SchemaNode.PrimitiveNode prim -> {
+                sb.append(prefix);
+                sb.append(prim.repetitionType().name().toLowerCase());
+                sb.append(" ").append(prim.type().name().toLowerCase());
+                sb.append(" ").append(prim.name());
+                if (prim.logicalType() != null) {
+                    sb.append(" (").append(prim.logicalType()).append(")");
+                }
+                sb.append(";\n");
             }
-            sb.append(";\n");
         }
     }
 }
