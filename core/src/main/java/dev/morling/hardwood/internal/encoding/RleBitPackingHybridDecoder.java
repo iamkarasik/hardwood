@@ -65,6 +65,45 @@ public class RleBitPackingHybridDecoder {
         }
     }
 
+    /**
+     * Read boolean values directly into output array, placing them at positions indicated by definition levels.
+     * Used for RLE-encoded boolean columns.
+     */
+    public void readBooleans(Object[] output, int[] definitionLevels, int maxDefLevel) throws IOException {
+        if (definitionLevels == null) {
+            for (int i = 0; i < output.length; i++) {
+                output[i] = readInt() != 0;
+            }
+        }
+        else {
+            for (int i = 0; i < output.length; i++) {
+                if (definitionLevels[i] == maxDefLevel) {
+                    output[i] = readInt() != 0;
+                }
+            }
+        }
+    }
+
+    /**
+     * Read dictionary indices and look up values, placing them directly at positions indicated by definition levels.
+     * Used for RLE_DICTIONARY encoded columns.
+     */
+    public void readDictionaryValues(Object[] output, Object[] dictionary, int[] definitionLevels, int maxDefLevel)
+            throws IOException {
+        if (definitionLevels == null) {
+            for (int i = 0; i < output.length; i++) {
+                output[i] = dictionary[readInt()];
+            }
+        }
+        else {
+            for (int i = 0; i < output.length; i++) {
+                if (definitionLevels[i] == maxDefLevel) {
+                    output[i] = dictionary[readInt()];
+                }
+            }
+        }
+    }
+
     private void readNextRun() throws IOException {
         // Read header varint
         long header = readUnsignedVarInt();

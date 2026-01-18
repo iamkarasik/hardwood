@@ -18,7 +18,7 @@ import dev.morling.hardwood.metadata.PhysicalType;
  * Decoder for PLAIN encoding.
  * PLAIN encoding stores values in their native binary representation.
  */
-public class PlainDecoder {
+public class PlainDecoder implements ValueDecoder {
 
     private final InputStream input;
     private final PhysicalType type;
@@ -73,6 +73,24 @@ public class PlainDecoder {
     public void readValues(Object[] buffer, int offset, int count) throws IOException {
         for (int i = 0; i < count; i++) {
             buffer[offset + i] = readValue();
+        }
+    }
+
+    @Override
+    public void readValues(Object[] output, int[] definitionLevels, int maxDefLevel) throws IOException {
+        if (definitionLevels == null) {
+            // Required column - all positions have values
+            for (int i = 0; i < output.length; i++) {
+                output[i] = readValue();
+            }
+        }
+        else {
+            // Optional column - only read where definition level indicates a value
+            for (int i = 0; i < output.length; i++) {
+                if (definitionLevels[i] == maxDefLevel) {
+                    output[i] = readValue();
+                }
+            }
         }
     }
 

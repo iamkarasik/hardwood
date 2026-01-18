@@ -7,9 +7,6 @@
  */
 package dev.morling.hardwood.perf;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.within;
-
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -34,6 +31,9 @@ import dev.morling.hardwood.reader.ParquetFileReader;
 import dev.morling.hardwood.reader.RowReader;
 import dev.morling.hardwood.row.PqRow;
 import dev.morling.hardwood.row.PqType;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.withinPercentage;
 
 /**
  * Performance comparison test between Hardwood, and parquet-java.
@@ -84,22 +84,23 @@ class SimplePerformanceTest {
         printResults(files.size(), hardwoodResult, parquetJavaResult);
 
         // Verify correctness - compare against parquet-java as reference
+        // Use relative tolerance for floating-point sums (accumulation error over millions of rows)
         assertThat(hardwoodResult.passengerCount())
                 .as("Hardwood passenger_count should match parquet-java")
                 .isEqualTo(parquetJavaResult.passengerCount());
         assertThat(hardwoodResult.tripDistance())
                 .as("Hardwood trip_distance should match parquet-java")
-                .isCloseTo(parquetJavaResult.tripDistance(), within(0.001));
+                .isCloseTo(parquetJavaResult.tripDistance(), withinPercentage(0.0001));
         assertThat(hardwoodResult.fareAmount())
                 .as("Hardwood fare_amount should match parquet-java")
-                .isCloseTo(parquetJavaResult.fareAmount(), within(0.001));
+                .isCloseTo(parquetJavaResult.fareAmount(), withinPercentage(0.0001));
 
         System.out.println("\nAll results match!");
     }
 
     private List<Path> getAvailableFiles() throws IOException {
         List<Path> files = new ArrayList<>();
-        for (int month = 1; month <= 3; month++) {
+        for (int month = 1; month <= 11; month++) {
             String filename = String.format("yellow_tripdata_%d-%02d.parquet", YEAR, month);
             Path file = DATA_DIR.resolve(filename);
             if (Files.exists(file) && Files.size(file) > 0) {
@@ -191,26 +192,79 @@ class SimplePerformanceTest {
     }
 
     private void printResults(int fileCount, Result hardwood, Result parquetJava) {
-        System.out.println("\n=== Performance Test Results ===");
-        System.out.println("Files processed: " + fileCount);
-        System.out.println("Total rows: " + String.format("%,d", hardwood.rowCount()));
-        System.out.println();
-        System.out.println(String.format("%-20s | %10s | %17s | %17s | %17s",
-                "Contender", "Time (s)", "passenger_count", "trip_distance", "fare_amount"));
-        System.out.println("-".repeat(20) + "-+-" + "-".repeat(10) + "-+-" + "-".repeat(17)
-                + "-+-" + "-".repeat(17) + "-+-" + "-".repeat(17));
+        int cpuCores = Runtime.getRuntime().availableProcessors();
+        long totalBytes = 0;
+        try {
+            for (Path file : getAvailableFiles()) {
+                totalBytes += Files.size(file);
+            }
+        }
+        catch (IOException ignored) {
+        }
 
-        printResultRow("Hardwood", hardwood);
-        printResultRow("parquet-java", parquetJava);
+        System.out.println("\n" + "=".repeat(100));
+        System.out.println("PERFORMANCE TEST RESULTS");
+        System.out.println("=".repeat(100));
+        System.out.println();
+        System.out.println("Environment:");
+        System.out.println("  CPU cores:       " + cpuCores);
+        System.out.println("  Java version:    " + System.getProperty("java.version"));
+        System.out.println("  OS:              " + System.getProperty("os.name") + " " + System.getProperty("os.arch"));
+        System.out.println();
+        System.out.println("Data:");
+        System.out.println("  Files processed: " + fileCount);
+        System.out.println("  Total rows:      " + String.format("%,d", hardwood.rowCount()));
+        System.out.println("  Total size:      " + String.format("%,.1f MB", totalBytes / (1024.0 * 1024.0)));
+        System.out.println();
+
+        // Correctness verification
+        System.out.println("Correctness Verification:");
+        System.out.println(String.format("  %-20s %17s %17s %17s", "", "passenger_count", "trip_distance", "fare_amount"));
+        System.out.println(String.format("  %-20s %,17d %,17.2f %,17.2f", "Hardwood", hardwood.passengerCount(), hardwood.tripDistance(), hardwood.fareAmount()));
+        System.out.println(String.format("  %-20s %,17d %,17.2f %,17.2f", "parquet-java", parquetJava.passengerCount(), parquetJava.tripDistance(), parquetJava.fareAmount()));
+        System.out.println();
+
+        // Performance comparison
+        System.out.println("Performance:");
+        System.out.println(String.format("  %-20s %12s %15s %18s %12s",
+                "Contender", "Time (s)", "Records/sec", "Records/sec/core", "MB/sec"));
+        System.out.println("  " + "-".repeat(85));
+
+        printResultRow("Hardwood", hardwood, cpuCores);
+        printResultRow("parquet-java", parquetJava, 1);
+
+        // Speedup
+        System.out.println();
+        double speedup = (double) parquetJava.durationMs() / hardwood.durationMs();
+        System.out.println(String.format("  Speedup: %.2fx %s",
+                speedup,
+                speedup > 1 ? "(Hardwood is faster)" : "(parquet-java is faster)"));
+        System.out.println();
+        System.out.println("=".repeat(100));
     }
 
-    private void printResultRow(String name, Result result) {
-        System.out.println(String.format("%-20s | %10.2f | %,17d | %,17.2f | %,17.2f",
+    private void printResultRow(String name, Result result, int cpuCores) {
+        double seconds = result.durationMs() / 1000.0;
+        double recordsPerSec = result.rowCount() / seconds;
+        double recordsPerSecPerCore = recordsPerSec / cpuCores;
+
+        // Estimate MB/sec (rough, based on total file size / time)
+        long totalBytes = 0;
+        try {
+            for (Path file : getAvailableFiles()) {
+                totalBytes += Files.size(file);
+            }
+        }
+        catch (IOException ignored) {
+        }
+        double mbPerSec = (totalBytes / (1024.0 * 1024.0)) / seconds;
+
+        System.out.println(String.format("  %-20s %12.2f %,15.0f %,18.0f %12.1f",
                 name,
-                result.durationMs() / 1000.0,
-                result.passengerCount(),
-                result.tripDistance(),
-                result.fareAmount()));
+                seconds,
+                recordsPerSec,
+                recordsPerSecPerCore,
+                mbPerSec));
     }
 
     private void downloadFile(String url, Path target) {

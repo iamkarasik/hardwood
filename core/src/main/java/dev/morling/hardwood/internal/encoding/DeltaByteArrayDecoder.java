@@ -35,7 +35,7 @@ import dev.morling.hardwood.metadata.PhysicalType;
  *
  * @see <a href="https://github.com/apache/parquet-format/blob/master/Encodings.md">Parquet Encodings</a>
  */
-public class DeltaByteArrayDecoder {
+public class DeltaByteArrayDecoder implements ValueDecoder {
 
     private final InputStream input;
 
@@ -61,13 +61,14 @@ public class DeltaByteArrayDecoder {
 
     /**
      * Initialize the decoder by reading all prefix lengths and preparing the suffix decoder.
-     * Must be called before reading values, with the total number of values expected.
+     * Must be called before reading values, with the total number of non-null values expected.
      */
-    public void initialize(int numValues) throws IOException {
-        this.totalValues = numValues;
-        this.prefixLengths = new int[numValues];
+    @Override
+    public void initialize(int numNonNullValues) throws IOException {
+        this.totalValues = numNonNullValues;
+        this.prefixLengths = new int[numNonNullValues];
 
-        if (numValues == 0) {
+        if (numNonNullValues == 0) {
             initialized = true;
             return;
         }
@@ -75,14 +76,14 @@ public class DeltaByteArrayDecoder {
         // Read all prefix lengths using DELTA_BINARY_PACKED
         // Prefix lengths are always encoded as INT32 per the spec
         DeltaBinaryPackedDecoder prefixDecoder = new DeltaBinaryPackedDecoder(input, PhysicalType.INT32);
-        for (int i = 0; i < numValues; i++) {
+        for (int i = 0; i < numNonNullValues; i++) {
             Object value = prefixDecoder.readValue();
             prefixLengths[i] = ((Number) value).intValue();
         }
 
         // Create the suffix decoder (uses DELTA_LENGTH_BYTE_ARRAY)
         suffixDecoder = new DeltaLengthByteArrayDecoder(input);
-        suffixDecoder.readLengths(numValues);
+        suffixDecoder.initialize(numNonNullValues);
 
         initialized = true;
     }
@@ -116,17 +117,23 @@ public class DeltaByteArrayDecoder {
         return value;
     }
 
-    /**
-     * Read multiple values into a buffer.
-     */
-    public void readValues(Object[] buffer, int offset, int count) throws IOException {
-        // If not initialized yet, initialize now
+    @Override
+    public void readValues(Object[] output, int[] definitionLevels, int maxDefLevel) throws IOException {
         if (!initialized) {
-            initialize(count);
+            throw new IOException("Must call initialize() before reading values");
         }
 
-        for (int i = 0; i < count; i++) {
-            buffer[offset + i] = readValue();
+        if (definitionLevels == null) {
+            for (int i = 0; i < output.length; i++) {
+                output[i] = readValue();
+            }
+        }
+        else {
+            for (int i = 0; i < output.length; i++) {
+                if (definitionLevels[i] == maxDefLevel) {
+                    output[i] = readValue();
+                }
+            }
         }
     }
 }

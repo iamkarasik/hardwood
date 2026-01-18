@@ -359,6 +359,13 @@ Contender            |   Time (s) |   passenger_count |     trip_distance |     
 Hardwood             |      18.73 |        43,991,423 |    303,521,540.36 |    801,792,434.75
 ```
 
+```
+=== Performance Test Results (2026-01-18, avoiding copying during decoding) ===
+  Contender                Time (s)     Records/sec   Records/sec/core       MB/sec
+  -------------------------------------------------------------------------------------
+  Hardwood                    14.97       2,966,315            185,395         48.2
+```
+
 ## Implementation Status & Roadmap
 
 A from-scratch implementation of Apache Parquet reader/writer in Java with no dependencies except compression libraries.

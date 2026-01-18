@@ -29,7 +29,7 @@ import dev.morling.hardwood.metadata.PhysicalType;
  *
  * @see <a href="https://github.com/apache/parquet-format/blob/master/Encodings.md">Parquet Encodings</a>
  */
-public class DeltaBinaryPackedDecoder {
+public class DeltaBinaryPackedDecoder implements ValueDecoder {
 
     private final InputStream input;
     private final PhysicalType type;
@@ -106,12 +106,19 @@ public class DeltaBinaryPackedDecoder {
         return boxValue(lastValue);
     }
 
-    /**
-     * Read multiple values into a buffer.
-     */
-    public void readValues(Object[] buffer, int offset, int count) throws IOException {
-        for (int i = 0; i < count; i++) {
-            buffer[offset + i] = readValue();
+    @Override
+    public void readValues(Object[] output, int[] definitionLevels, int maxDefLevel) throws IOException {
+        if (definitionLevels == null) {
+            for (int i = 0; i < output.length; i++) {
+                output[i] = readValue();
+            }
+        }
+        else {
+            for (int i = 0; i < output.length; i++) {
+                if (definitionLevels[i] == maxDefLevel) {
+                    output[i] = readValue();
+                }
+            }
         }
     }
 

@@ -29,7 +29,7 @@ import dev.morling.hardwood.metadata.PhysicalType;
  *
  * @see <a href="https://github.com/apache/parquet-format/blob/master/Encodings.md">Parquet Encodings</a>
  */
-public class DeltaLengthByteArrayDecoder {
+public class DeltaLengthByteArrayDecoder implements ValueDecoder {
 
     private final InputStream input;
 
@@ -44,22 +44,19 @@ public class DeltaLengthByteArrayDecoder {
         this.lengths = null;
     }
 
-    /**
-     * Initialize the decoder by reading all lengths.
-     * Must be called before reading values, with the total number of values expected.
-     */
-    public void readLengths(int numValues) throws IOException {
-        this.totalValues = numValues;
-        this.lengths = new int[numValues];
+    @Override
+    public void initialize(int numNonNullValues) throws IOException {
+        this.totalValues = numNonNullValues;
+        this.lengths = new int[numNonNullValues];
 
-        if (numValues == 0) {
+        if (numNonNullValues == 0) {
             return;
         }
 
         // Read all lengths using DELTA_BINARY_PACKED
         // Lengths are always encoded as INT32 per the spec
         DeltaBinaryPackedDecoder lengthDecoder = new DeltaBinaryPackedDecoder(input, PhysicalType.INT32);
-        for (int i = 0; i < numValues; i++) {
+        for (int i = 0; i < numNonNullValues; i++) {
             Object value = lengthDecoder.readValue();
             // The decoder returns Integer for INT32 physical type
             lengths[i] = ((Number) value).intValue();
@@ -71,7 +68,7 @@ public class DeltaLengthByteArrayDecoder {
      */
     public byte[] readValue() throws IOException {
         if (lengths == null) {
-            throw new IOException("Must call readLengths() before reading values");
+            throw new IOException("Must call initialize() before reading values");
         }
 
         if (currentIndex >= totalValues) {
@@ -91,17 +88,23 @@ public class DeltaLengthByteArrayDecoder {
         return data;
     }
 
-    /**
-     * Read multiple values into a buffer.
-     */
-    public void readValues(Object[] buffer, int offset, int count) throws IOException {
-        // If lengths haven't been read yet, read them now
+    @Override
+    public void readValues(Object[] output, int[] definitionLevels, int maxDefLevel) throws IOException {
         if (lengths == null) {
-            readLengths(count);
+            throw new IOException("Must call initialize() before reading values");
         }
 
-        for (int i = 0; i < count; i++) {
-            buffer[offset + i] = readValue();
+        if (definitionLevels == null) {
+            for (int i = 0; i < output.length; i++) {
+                output[i] = readValue();
+            }
+        }
+        else {
+            for (int i = 0; i < output.length; i++) {
+                if (definitionLevels[i] == maxDefLevel) {
+                    output[i] = readValue();
+                }
+            }
         }
     }
 }

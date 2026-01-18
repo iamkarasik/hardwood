@@ -30,6 +30,7 @@ import dev.morling.hardwood.metadata.DataPageHeaderV2;
 import dev.morling.hardwood.metadata.DictionaryPageHeader;
 import dev.morling.hardwood.metadata.Encoding;
 import dev.morling.hardwood.metadata.PageHeader;
+import dev.morling.hardwood.metadata.PhysicalType;
 import dev.morling.hardwood.schema.ColumnSchema;
 
 /**
@@ -137,7 +138,7 @@ public class PageReader {
 
         // Decode values and map to output array
         Object[] values = decodeAndMapValues(
-                header.encoding(), dataStream, header.numValues(), numNonNullValues, definitionLevels, true);
+                header.encoding(), dataStream, header.numValues(), numNonNullValues, definitionLevels);
 
         return new Page(header.numValues(), definitionLevels, repetitionLevels, values);
     }
@@ -198,7 +199,7 @@ public class PageReader {
 
         // Decode values and map to output array
         Object[] values = decodeAndMapValues(
-                header.encoding(), valuesStream, header.numValues(), numNonNullValues, definitionLevels, false);
+                header.encoding(), valuesStream, header.numValues(), numNonNullValues, definitionLevels);
 
         return new Page(header.numValues(), definitionLevels, repetitionLevels, values);
     }
@@ -239,28 +240,22 @@ public class PageReader {
      * @param numValues total number of values (including nulls)
      * @param numNonNullValues number of non-null values to decode
      * @param definitionLevels definition levels for null handling (may be null)
-     * @param isV1 true for DATA_PAGE V1, false for DATA_PAGE_V2
      * @return array of decoded values with nulls in correct positions
      */
     private Object[] decodeAndMapValues(Encoding encoding, InputStream dataStream,
                                         int numValues, int numNonNullValues,
-                                        int[] definitionLevels, boolean isV1)
+                                        int[] definitionLevels)
             throws IOException {
         Object[] values = new Object[numValues];
-        Object[] encodedValues;
 
         switch (encoding) {
             case PLAIN -> {
-                encodedValues = new Object[numNonNullValues];
                 PlainDecoder decoder = new PlainDecoder(dataStream, column.type(), column.typeLength());
-                decoder.readValues(encodedValues, 0, numNonNullValues);
-                mapEncodedValues(encodedValues, values, definitionLevels);
+                decoder.readValues(values, definitionLevels, column.maxDefinitionLevel());
             }
             case RLE -> {
                 // RLE encoding for boolean values uses bit-width of 1
-                // The format includes a 4-byte little-endian length prefix followed by
-                // RLE/bit-packing hybrid encoded data
-                if (column.type() != dev.morling.hardwood.metadata.PhysicalType.BOOLEAN) {
+                if (column.type() != PhysicalType.BOOLEAN) {
                     throw new UnsupportedOperationException(
                             "RLE encoding for non-boolean types not yet supported: " + column.type());
                 }
@@ -268,8 +263,7 @@ public class PageReader {
                 // Read 4-byte length prefix (little-endian)
                 byte[] lengthBytes = new byte[4];
                 dataStream.read(lengthBytes);
-                int rleLength = java.nio.ByteBuffer.wrap(lengthBytes)
-                        .order(java.nio.ByteOrder.LITTLE_ENDIAN).getInt();
+                int rleLength = ByteBuffer.wrap(lengthBytes).order(ByteOrder.LITTLE_ENDIAN).getInt();
 
                 // Read the RLE-encoded data
                 byte[] rleData = new byte[rleLength];
@@ -277,16 +271,7 @@ public class PageReader {
 
                 RleBitPackingHybridDecoder decoder = new RleBitPackingHybridDecoder(
                         new ByteArrayInputStream(rleData), 1);
-
-                int[] boolInts = new int[numNonNullValues];
-                decoder.readInts(boolInts, 0, numNonNullValues);
-
-                // Convert int[] to Boolean[]
-                encodedValues = new Object[numNonNullValues];
-                for (int i = 0; i < numNonNullValues; i++) {
-                    encodedValues[i] = boolInts[i] != 0;
-                }
-                mapEncodedValues(encodedValues, values, definitionLevels);
+                decoder.readBooleans(values, definitionLevels, column.maxDefinitionLevel());
             }
             case RLE_DICTIONARY, PLAIN_DICTIONARY -> {
                 if (dictionary == null) {
@@ -294,7 +279,6 @@ public class PageReader {
                 }
 
                 // RLE_DICTIONARY encoding always starts with 1-byte bit-width prefix
-                // This is true for both V1 and V2 data pages
                 int bitWidth = dataStream.read();
                 if (bitWidth < 0) {
                     throw new IOException("Failed to read bit width for dictionary indices");
@@ -303,67 +287,33 @@ public class PageReader {
                 byte[] indicesData = dataStream.readAllBytes();
                 RleBitPackingHybridDecoder indexDecoder = new RleBitPackingHybridDecoder(
                         new ByteArrayInputStream(indicesData), bitWidth);
-
-                int[] indices = new int[numNonNullValues];
-                indexDecoder.readInts(indices, 0, numNonNullValues);
-
-                // Convert indices to dictionary values
-                encodedValues = new Object[numNonNullValues];
-                for (int i = 0; i < numNonNullValues; i++) {
-                    encodedValues[i] = dictionary[indices[i]];
-                }
-                mapEncodedValues(encodedValues, values, definitionLevels);
+                indexDecoder.readDictionaryValues(values, dictionary, definitionLevels, column.maxDefinitionLevel());
             }
             case DELTA_BINARY_PACKED -> {
-                encodedValues = new Object[numNonNullValues];
                 DeltaBinaryPackedDecoder decoder = new DeltaBinaryPackedDecoder(dataStream, column.type());
-                decoder.readValues(encodedValues, 0, numNonNullValues);
-                mapEncodedValues(encodedValues, values, definitionLevels);
+                decoder.readValues(values, definitionLevels, column.maxDefinitionLevel());
             }
             case DELTA_LENGTH_BYTE_ARRAY -> {
-                encodedValues = new Object[numNonNullValues];
                 DeltaLengthByteArrayDecoder decoder = new DeltaLengthByteArrayDecoder(dataStream);
-                decoder.readValues(encodedValues, 0, numNonNullValues);
-                mapEncodedValues(encodedValues, values, definitionLevels);
+                decoder.initialize(numNonNullValues);
+                decoder.readValues(values, definitionLevels, column.maxDefinitionLevel());
             }
             case DELTA_BYTE_ARRAY -> {
-                encodedValues = new Object[numNonNullValues];
                 DeltaByteArrayDecoder decoder = new DeltaByteArrayDecoder(dataStream);
-                decoder.readValues(encodedValues, 0, numNonNullValues);
-                mapEncodedValues(encodedValues, values, definitionLevels);
+                decoder.initialize(numNonNullValues);
+                decoder.readValues(values, definitionLevels, column.maxDefinitionLevel());
             }
             case BYTE_STREAM_SPLIT -> {
                 // BYTE_STREAM_SPLIT needs all data upfront to compute stream offsets
                 byte[] allData = dataStream.readAllBytes();
-                encodedValues = new Object[numNonNullValues];
                 ByteStreamSplitDecoder decoder = new ByteStreamSplitDecoder(
                         allData, numNonNullValues, column.type(), column.typeLength());
-                decoder.readValues(encodedValues, 0, numNonNullValues);
-                mapEncodedValues(encodedValues, values, definitionLevels);
+                decoder.readValues(values, definitionLevels, column.maxDefinitionLevel());
             }
             default -> throw new UnsupportedOperationException("Encoding not yet supported: " + encoding);
         }
 
         return values;
-    }
-
-    /**
-     * Map encoded values to output array, placing nulls where definition level indicates.
-     */
-    private void mapEncodedValues(Object[] encodedValues, Object[] output, int[] definitionLevels) {
-        if (definitionLevels == null) {
-            System.arraycopy(encodedValues, 0, output, 0, encodedValues.length);
-        }
-        else {
-            int encodedIndex = 0;
-            int maxDefLevel = column.maxDefinitionLevel();
-            for (int i = 0; i < output.length; i++) {
-                if (definitionLevels[i] == maxDefLevel) {
-                    output[i] = encodedValues[encodedIndex++];
-                }
-                // else output[i] stays null
-            }
-        }
     }
 
     /**

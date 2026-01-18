@@ -26,7 +26,7 @@ import dev.morling.hardwood.metadata.PhysicalType;
  *
  * To decode value i, gather byte[i] from each stream and reassemble.
  */
-public class ByteStreamSplitDecoder {
+public class ByteStreamSplitDecoder implements ValueDecoder {
 
     private final byte[] data;
     private final int numValues;
@@ -98,12 +98,19 @@ public class ByteStreamSplitDecoder {
         };
     }
 
-    /**
-     * Read multiple values into a buffer.
-     */
-    public void readValues(Object[] buffer, int offset, int count) throws IOException {
-        for (int i = 0; i < count; i++) {
-            buffer[offset + i] = readValue();
+    @Override
+    public void readValues(Object[] output, int[] definitionLevels, int maxDefLevel) throws IOException {
+        if (definitionLevels == null) {
+            for (int i = 0; i < output.length; i++) {
+                output[i] = readValue();
+            }
+        }
+        else {
+            for (int i = 0; i < output.length; i++) {
+                if (definitionLevels[i] == maxDefLevel) {
+                    output[i] = readValue();
+                }
+            }
         }
     }
 }

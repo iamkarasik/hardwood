@@ -7,9 +7,6 @@
  */
 package dev.morling.hardwood;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.within;
-
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Instant;
@@ -25,6 +22,9 @@ import dev.morling.hardwood.reader.RowReader;
 import dev.morling.hardwood.row.PqRow;
 import dev.morling.hardwood.row.PqType;
 import dev.morling.hardwood.schema.ColumnSchema;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 
 /**
  * Tests for reading NYC Yellow Taxi trip data.
