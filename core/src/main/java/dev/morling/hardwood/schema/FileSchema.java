@@ -22,6 +22,7 @@ public class FileSchema {
 
     private final String name;
     private final List<ColumnSchema> columns;
+    private final StringToIntMap columnNameToIndex;
     private final SchemaNode.GroupNode rootNode;
     private final List<FieldPath> fieldPaths;
 
@@ -30,6 +31,12 @@ public class FileSchema {
         this.columns = columns;
         this.rootNode = rootNode;
         this.fieldPaths = fieldPaths;
+
+        // Pre-compute name -> index mapping for O(1) lookup
+        this.columnNameToIndex = new StringToIntMap(columns.size());
+        for (int i = 0; i < columns.size(); i++) {
+            columnNameToIndex.put(columns.get(i).name(), i);
+        }
     }
 
     public String getName() {
@@ -45,12 +52,11 @@ public class FileSchema {
     }
 
     public ColumnSchema getColumn(String name) {
-        for (ColumnSchema column : columns) {
-            if (column.name().equals(name)) {
-                return column;
-            }
+        int index = columnNameToIndex.get(name);
+        if (index < 0) {
+            throw new IllegalArgumentException("Column not found: " + name);
         }
-        throw new IllegalArgumentException("Column not found: " + name);
+        return columns.get(index);
     }
 
     public int getColumnCount() {
@@ -78,6 +84,34 @@ public class FileSchema {
 
     public List<FieldPath> getFieldPaths() {
         return fieldPaths;
+    }
+
+    /**
+     * Returns true if this schema supports direct columnar access.
+     * For such schemas, enabling direct columnar access without record assembly.
+     * <p>
+     * A schema supports columnar access if:
+     * <ul>
+     *   <li>The root node has only primitive children (no groups/nesting)</li>
+     *   <li>No repeated fields (maxRepetitionLevel == 0 for all columns)</li>
+     * </ul>
+     * Optional fields are supported - value indices are computed from definition levels.
+     * </p>
+     */
+    public boolean isFlatSchema() {
+        // Check if root has only primitive children (no groups = no nesting)
+        for (SchemaNode child : rootNode.children()) {
+            if (child instanceof SchemaNode.GroupNode) {
+                return false;
+            }
+        }
+        // Check that no columns have repetition (no lists/repeated fields)
+        for (ColumnSchema col : columns) {
+            if (col.maxRepetitionLevel() > 0) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**

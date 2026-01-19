@@ -17,6 +17,7 @@ import java.util.List;
 import dev.morling.hardwood.internal.conversion.LogicalTypeConverter;
 import dev.morling.hardwood.internal.reader.ColumnBatch;
 import dev.morling.hardwood.internal.reader.PageReader;
+import dev.morling.hardwood.internal.reader.TypedColumnData;
 import dev.morling.hardwood.metadata.ColumnChunk;
 import dev.morling.hardwood.metadata.ColumnMetaData;
 import dev.morling.hardwood.schema.ColumnSchema;
@@ -37,6 +38,10 @@ public class ColumnReader {
     private PageReader.Page currentPage;
     private int currentPagePosition;
     private long valuesRead;
+
+    // State for typed batch reading
+    private PageReader.TypedPage currentTypedPage;
+    private int currentTypedPagePosition;
 
     // Lookahead buffer (single value)
     private ValueWithLevels lookahead;
@@ -307,12 +312,12 @@ public class ColumnReader {
             for (int i = pageStart; i < pageEnd; i++) {
                 int rep = page.repetitionLevels() != null ? page.repetitionLevels()[i] : 0;
                 if (rep == 0 && (valueCount > 0 || i > pageStart)) {
-                    // Start of a new record
-                    recordsFound++;
-                    if (recordCount + recordsFound >= batchSize) {
-                        endPos = i;
+                    // Start of a new record - check if adding it would exceed batch size
+                    if (recordCount + recordsFound + 1 >= batchSize) {
+                        endPos = i;  // Don't include this record in current batch
                         break;
                     }
+                    recordsFound++;
                 }
             }
 
@@ -365,6 +370,141 @@ public class ColumnReader {
                 valueCount == repLevels.length ? repLevels : Arrays.copyOf(repLevels, valueCount),
                 recordCount,
                 column);
+    }
+
+    /**
+     * Read a batch of values with typed primitive data where possible.
+     * For flat schemas (no repetition), this returns TypedColumnData with primitive arrays.
+     *
+     * @param batchSize maximum number of records to read
+     * @return ColumnBatch with typed data when available
+     */
+    ColumnBatch readTypedBatch(int batchSize) throws IOException {
+        // For columns with repetition, fall back to Object[] since records can span multiple values
+        if (maxRepetitionLevel > 0) {
+            return readBatch(batchSize);
+        }
+
+        // For flat schemas, each value is one record. Read exactly batchSize records.
+        int recordsNeeded = batchSize;
+        int recordsCollected = 0;
+
+        // We'll collect slices from pages and combine them
+        List<TypedSlice> slices = new ArrayList<>();
+
+        while (recordsCollected < recordsNeeded && hasNext()) {
+            // Ensure we have a typed page loaded
+            if (currentTypedPage == null || currentTypedPagePosition >= currentTypedPage.numValues()) {
+                currentTypedPage = pageReader.readTypedPage();
+                currentTypedPagePosition = 0;
+                if (currentTypedPage == null) {
+                    break;
+                }
+            }
+
+            // Calculate how many records to take from this page
+            int availableInPage = currentTypedPage.numValues() - currentTypedPagePosition;
+            int toTake = Math.min(availableInPage, recordsNeeded - recordsCollected);
+
+            // Record this slice
+            slices.add(new TypedSlice(currentTypedPage, currentTypedPagePosition, toTake));
+
+            currentTypedPagePosition += toTake;
+            valuesRead += toTake;
+            recordsCollected += toTake;
+        }
+
+        if (slices.isEmpty()) {
+            return new ColumnBatch(new Object[0], new int[0], new int[0], 0, column);
+        }
+
+        // If single slice covering the whole page, return directly
+        if (slices.size() == 1) {
+            TypedSlice slice = slices.get(0);
+            if (slice.start == 0 && slice.count == slice.page.numValues()) {
+                return new ColumnBatch(slice.page.columnData(), slice.page.repetitionLevels(),
+                        slice.count, column);
+            }
+        }
+
+        // Combine slices into a single batch
+        return combineTypedSlices(slices, recordsCollected);
+    }
+
+    private record TypedSlice(PageReader.TypedPage page, int start, int count) {
+    }
+
+    /**
+     * Combine typed slices into a single ColumnBatch.
+     */
+    private ColumnBatch combineTypedSlices(List<TypedSlice> slices, int recordCount) {
+        TypedSlice firstSlice = slices.get(0);
+        TypedColumnData firstData = firstSlice.page.columnData();
+        int maxDefLevel = firstData.maxDefinitionLevel();
+
+        if (firstData instanceof TypedColumnData.LongColumn) {
+            long[] combined = new long[recordCount];
+            int[] defLevels = new int[recordCount];
+            int pos = 0;
+            for (TypedSlice slice : slices) {
+                TypedColumnData.LongColumn col = (TypedColumnData.LongColumn) slice.page.columnData();
+                System.arraycopy(col.values(), slice.start, combined, pos, slice.count);
+                if (col.definitionLevels() != null) {
+                    System.arraycopy(col.definitionLevels(), slice.start, defLevels, pos, slice.count);
+                }
+                pos += slice.count;
+            }
+            TypedColumnData combinedData = new TypedColumnData.LongColumn(
+                    combined, defLevels, maxDefLevel, recordCount);
+            return new ColumnBatch(combinedData, null, recordCount, column);
+        }
+        else if (firstData instanceof TypedColumnData.DoubleColumn) {
+            double[] combined = new double[recordCount];
+            int[] defLevels = new int[recordCount];
+            int pos = 0;
+            for (TypedSlice slice : slices) {
+                TypedColumnData.DoubleColumn col = (TypedColumnData.DoubleColumn) slice.page.columnData();
+                System.arraycopy(col.values(), slice.start, combined, pos, slice.count);
+                if (col.definitionLevels() != null) {
+                    System.arraycopy(col.definitionLevels(), slice.start, defLevels, pos, slice.count);
+                }
+                pos += slice.count;
+            }
+            TypedColumnData combinedData = new TypedColumnData.DoubleColumn(
+                    combined, defLevels, maxDefLevel, recordCount);
+            return new ColumnBatch(combinedData, null, recordCount, column);
+        }
+        else if (firstData instanceof TypedColumnData.IntColumn) {
+            int[] combined = new int[recordCount];
+            int[] defLevels = new int[recordCount];
+            int pos = 0;
+            for (TypedSlice slice : slices) {
+                TypedColumnData.IntColumn col = (TypedColumnData.IntColumn) slice.page.columnData();
+                System.arraycopy(col.values(), slice.start, combined, pos, slice.count);
+                if (col.definitionLevels() != null) {
+                    System.arraycopy(col.definitionLevels(), slice.start, defLevels, pos, slice.count);
+                }
+                pos += slice.count;
+            }
+            TypedColumnData combinedData = new TypedColumnData.IntColumn(
+                    combined, defLevels, maxDefLevel, recordCount);
+            return new ColumnBatch(combinedData, null, recordCount, column);
+        }
+        else {
+            // ObjectColumn - combine Object arrays
+            Object[] combined = new Object[recordCount];
+            int[] defLevels = new int[recordCount];
+            int pos = 0;
+            for (TypedSlice slice : slices) {
+                TypedColumnData.ObjectColumn col = (TypedColumnData.ObjectColumn) slice.page.columnData();
+                System.arraycopy(col.values(), slice.start, combined, pos, slice.count);
+                if (col.definitionLevels() != null) {
+                    System.arraycopy(col.definitionLevels(), slice.start, defLevels, pos, slice.count);
+                }
+                pos += slice.count;
+            }
+            return new ColumnBatch(combined, defLevels, null, recordCount, column);
+        }
     }
 
     public ColumnSchema getColumnSchema() {

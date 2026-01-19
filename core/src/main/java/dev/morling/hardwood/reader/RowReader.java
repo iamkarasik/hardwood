@@ -18,6 +18,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 
 import dev.morling.hardwood.internal.reader.ColumnBatch;
+import dev.morling.hardwood.internal.reader.ColumnarPqRowImpl;
 import dev.morling.hardwood.internal.reader.MutableStruct;
 import dev.morling.hardwood.internal.reader.PqRowImpl;
 import dev.morling.hardwood.internal.reader.RecordAssembler;
@@ -40,6 +41,7 @@ public class RowReader implements Iterable<PqRow>, AutoCloseable {
     private final ExecutorService executor;
     private final int batchSize;
     private final long totalRows;
+    private final boolean flatSchema;
 
     // Current row group state
     private int currentRowGroupIndex;
@@ -47,6 +49,7 @@ public class RowReader implements Iterable<PqRow>, AutoCloseable {
 
     // Current batch state
     private List<ColumnBatch> currentBatches;
+    private int currentBatchSize;  // Minimum size across all column batches
     private int currentBatchRecordsRead;
     private long totalRowsRead;
     private boolean closed;
@@ -77,6 +80,7 @@ public class RowReader implements Iterable<PqRow>, AutoCloseable {
         this.executor = executor;
         this.totalRows = totalRows;
         this.batchSize = batchSize;
+        this.flatSchema = schema.isFlatSchema();
         this.currentRowGroupIndex = 0;
         this.currentColumnReaders = null;
         this.currentBatches = null;
@@ -132,11 +136,15 @@ public class RowReader implements Iterable<PqRow>, AutoCloseable {
             initializeCurrentRowGroupReaders();
         }
 
-        // Create futures for parallel batch fetching (always use raw mode)
+        // Create futures for parallel batch fetching
         List<CompletableFuture<ColumnBatch>> futures = new ArrayList<>();
         for (ColumnReader reader : currentColumnReaders) {
             CompletableFuture<ColumnBatch> future = CompletableFuture.supplyAsync(() -> {
                 try {
+                    // Use typed batch for flat schemas (no boxing overhead)
+                    if (flatSchema) {
+                        return reader.readTypedBatch(batchSize);
+                    }
                     return reader.readBatch(batchSize);
                 }
                 catch (IOException e) {
@@ -171,6 +179,15 @@ public class RowReader implements Iterable<PqRow>, AutoCloseable {
             }
         }
 
+        // Compute minimum batch size across all columns (they may differ due to page boundaries)
+        currentBatchSize = Integer.MAX_VALUE;
+        for (ColumnBatch batch : currentBatches) {
+            currentBatchSize = Math.min(currentBatchSize, batch.size());
+        }
+        if (currentBatches.isEmpty()) {
+            currentBatchSize = 0;
+        }
+
         currentBatchRecordsRead = 0;
     }
 
@@ -201,7 +218,7 @@ public class RowReader implements Iterable<PqRow>, AutoCloseable {
 
             // Check if we need to fetch a new batch
             if (currentBatches == null ||
-                    (currentBatchRecordsRead >= currentBatches.get(0).size() && totalRowsRead < totalRows)) {
+                    (currentBatchRecordsRead >= currentBatchSize && totalRowsRead < totalRows)) {
                 try {
                     fetchNextBatch();
                 }
@@ -212,7 +229,7 @@ public class RowReader implements Iterable<PqRow>, AutoCloseable {
 
             return currentBatches != null &&
                     !currentBatches.isEmpty() &&
-                    currentBatchRecordsRead < currentBatches.get(0).size();
+                    currentBatchRecordsRead < currentBatchSize;
         }
 
         @Override
@@ -221,17 +238,24 @@ public class RowReader implements Iterable<PqRow>, AutoCloseable {
                 throw new NoSuchElementException("No more rows available");
             }
 
-            // Advance all batches to the next record
-            for (ColumnBatch batch : currentBatches) {
-                batch.nextRecord();
+            PqRow row;
+            if (flatSchema) {
+                // Fast path: direct columnar access for flat schemas
+                row = new ColumnarPqRowImpl(currentBatches, currentBatchRecordsRead, schema);
             }
-
-            MutableStruct rowValues = assembler.assembleRow(currentBatches);
+            else {
+                // Slow path: assemble row for nested schemas
+                for (ColumnBatch batch : currentBatches) {
+                    batch.nextRecord();
+                }
+                MutableStruct rowValues = assembler.assembleRow(currentBatches);
+                row = new PqRowImpl(rowValues, schema);
+            }
 
             currentBatchRecordsRead++;
             totalRowsRead++;
 
-            return new PqRowImpl(rowValues, schema);
+            return row;
         }
     }
 }

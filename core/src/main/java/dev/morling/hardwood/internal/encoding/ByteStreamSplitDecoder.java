@@ -113,4 +113,96 @@ public class ByteStreamSplitDecoder implements ValueDecoder {
             }
         }
     }
+
+    /**
+     * Read DOUBLE values directly into a primitive double array.
+     */
+    @Override
+    public void readDoubles(double[] output, int[] definitionLevels, int maxDefLevel) throws IOException {
+        byte[] valueBytes = new byte[8];
+        ByteBuffer buffer = ByteBuffer.wrap(valueBytes).order(ByteOrder.LITTLE_ENDIAN);
+
+        if (definitionLevels == null) {
+            for (int i = 0; i < output.length; i++) {
+                gatherBytes(valueBytes);
+                buffer.rewind();
+                output[i] = buffer.getDouble();
+            }
+        }
+        else {
+            for (int i = 0; i < output.length; i++) {
+                if (definitionLevels[i] == maxDefLevel) {
+                    gatherBytes(valueBytes);
+                    buffer.rewind();
+                    output[i] = buffer.getDouble();
+                }
+            }
+        }
+    }
+
+    /**
+     * Read INT64 values directly into a primitive long array.
+     */
+    @Override
+    public void readLongs(long[] output, int[] definitionLevels, int maxDefLevel) throws IOException {
+        byte[] valueBytes = new byte[8];
+        ByteBuffer buffer = ByteBuffer.wrap(valueBytes).order(ByteOrder.LITTLE_ENDIAN);
+
+        if (definitionLevels == null) {
+            for (int i = 0; i < output.length; i++) {
+                gatherBytes(valueBytes);
+                buffer.rewind();
+                output[i] = buffer.getLong();
+            }
+        }
+        else {
+            for (int i = 0; i < output.length; i++) {
+                if (definitionLevels[i] == maxDefLevel) {
+                    gatherBytes(valueBytes);
+                    buffer.rewind();
+                    output[i] = buffer.getLong();
+                }
+            }
+        }
+    }
+
+    /**
+     * Read INT32 values directly into a primitive int array.
+     */
+    @Override
+    public void readInts(int[] output, int[] definitionLevels, int maxDefLevel) throws IOException {
+        byte[] valueBytes = new byte[4];
+        ByteBuffer buffer = ByteBuffer.wrap(valueBytes).order(ByteOrder.LITTLE_ENDIAN);
+
+        if (definitionLevels == null) {
+            for (int i = 0; i < output.length; i++) {
+                gatherBytes(valueBytes);
+                buffer.rewind();
+                output[i] = buffer.getInt();
+            }
+        }
+        else {
+            for (int i = 0; i < output.length; i++) {
+                if (definitionLevels[i] == maxDefLevel) {
+                    gatherBytes(valueBytes);
+                    buffer.rewind();
+                    output[i] = buffer.getInt();
+                }
+            }
+        }
+    }
+
+    /**
+     * Gather bytes for the current value from byte streams and advance the index.
+     */
+    private void gatherBytes(byte[] valueBytes) throws IOException {
+        if (currentIndex >= numValues) {
+            throw new IOException("No more values to read");
+        }
+        for (int k = 0; k < valueBytes.length; k++) {
+            int streamOffset = k * numValues;
+            valueBytes[k] = data[streamOffset + currentIndex];
+        }
+        currentIndex++;
+    }
 }

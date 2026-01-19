@@ -94,6 +94,63 @@ public class PlainDecoder implements ValueDecoder {
         }
     }
 
+    /**
+     * Read INT64 values directly into a primitive long array.
+     */
+    @Override
+    public void readLongs(long[] output, int[] definitionLevels, int maxDefLevel) throws IOException {
+        if (definitionLevels == null) {
+            for (int i = 0; i < output.length; i++) {
+                output[i] = readInt64();
+            }
+        }
+        else {
+            for (int i = 0; i < output.length; i++) {
+                if (definitionLevels[i] == maxDefLevel) {
+                    output[i] = readInt64();
+                }
+            }
+        }
+    }
+
+    /**
+     * Read DOUBLE values directly into a primitive double array.
+     */
+    @Override
+    public void readDoubles(double[] output, int[] definitionLevels, int maxDefLevel) throws IOException {
+        if (definitionLevels == null) {
+            for (int i = 0; i < output.length; i++) {
+                output[i] = readDouble();
+            }
+        }
+        else {
+            for (int i = 0; i < output.length; i++) {
+                if (definitionLevels[i] == maxDefLevel) {
+                    output[i] = readDouble();
+                }
+            }
+        }
+    }
+
+    /**
+     * Read INT32 values directly into a primitive int array.
+     */
+    @Override
+    public void readInts(int[] output, int[] definitionLevels, int maxDefLevel) throws IOException {
+        if (definitionLevels == null) {
+            for (int i = 0; i < output.length; i++) {
+                output[i] = readInt32();
+            }
+        }
+        else {
+            for (int i = 0; i < output.length; i++) {
+                if (definitionLevels[i] == maxDefLevel) {
+                    output[i] = readInt32();
+                }
+            }
+        }
+    }
+
     private boolean readBoolean() throws IOException {
         // Booleans are bit-packed in PLAIN encoding (8 values per byte, LSB first)
         if (bitPosition == 8) {

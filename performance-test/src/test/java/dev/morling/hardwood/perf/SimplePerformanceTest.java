@@ -129,19 +129,16 @@ class SimplePerformanceTest {
                     RowReader rowReader = reader.createRowReader()) {
                 for (PqRow row : rowReader) {
                     rowCount++;
-                    Long pc = row.getLong("passenger_count");
-                    if (pc != null) {
-                        passengerCount += pc;
+                    if (!row.isNull("passenger_count")) {
+                        passengerCount += row.getLong("passenger_count");
                     }
 
-                    Double td = row.getDouble("trip_distance");
-                    if (td != null) {
-                        tripDistance += td;
+                    if (!row.isNull("trip_distance")) {
+                        tripDistance += row.getDouble("trip_distance");
                     }
 
-                    Double fa = row.getDouble("fare_amount");
-                    if (fa != null) {
-                        fareAmount += fa;
+                    if (!row.isNull("fare_amount")) {
+                        fareAmount += row.getDouble("fare_amount");
                     }
                 }
             }

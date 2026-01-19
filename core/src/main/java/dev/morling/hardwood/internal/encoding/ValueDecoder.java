@@ -34,4 +34,37 @@ public interface ValueDecoder {
      * @param maxDefLevel the maximum definition level (value is present when defLevel == maxDefLevel)
      */
     void readValues(Object[] output, int[] definitionLevels, int maxDefLevel) throws IOException;
+
+    /**
+     * Read long values directly into a primitive array.
+     *
+     * @param output the output array to populate
+     * @param definitionLevels definition levels indicating which positions have values (null for required columns)
+     * @param maxDefLevel the maximum definition level (value is present when defLevel == maxDefLevel)
+     */
+    default void readLongs(long[] output, int[] definitionLevels, int maxDefLevel) throws IOException {
+        throw new UnsupportedOperationException("readLongs not supported by this decoder");
+    }
+
+    /**
+     * Read double values directly into a primitive array.
+     *
+     * @param output the output array to populate
+     * @param definitionLevels definition levels indicating which positions have values (null for required columns)
+     * @param maxDefLevel the maximum definition level (value is present when defLevel == maxDefLevel)
+     */
+    default void readDoubles(double[] output, int[] definitionLevels, int maxDefLevel) throws IOException {
+        throw new UnsupportedOperationException("readDoubles not supported by this decoder");
+    }
+
+    /**
+     * Read int values directly into a primitive array.
+     *
+     * @param output the output array to populate
+     * @param definitionLevels definition levels indicating which positions have values (null for required columns)
+     * @param maxDefLevel the maximum definition level (value is present when defLevel == maxDefLevel)
+     */
+    default void readInts(int[] output, int[] definitionLevels, int maxDefLevel) throws IOException {
+        throw new UnsupportedOperationException("readInts not supported by this decoder");
+    }
 }

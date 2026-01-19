@@ -49,6 +49,7 @@ import dev.morling.hardwood.schema.ColumnSchema;
 public final class ColumnBatch {
 
     private final Object[] values;
+    private final TypedColumnData typedData;
     private final int[] definitionLevels;
     private final int[] repetitionLevels;
     private final int recordCount;
@@ -61,7 +62,21 @@ public final class ColumnBatch {
     public ColumnBatch(Object[] values, int[] definitionLevels, int[] repetitionLevels,
                        int recordCount, ColumnSchema column) {
         this.values = values;
+        this.typedData = null;
         this.definitionLevels = definitionLevels;
+        this.repetitionLevels = repetitionLevels;
+        this.recordCount = recordCount;
+        this.column = column;
+    }
+
+    /**
+     * Create a ColumnBatch with typed primitive data.
+     */
+    public ColumnBatch(TypedColumnData typedData, int[] repetitionLevels,
+                       int recordCount, ColumnSchema column) {
+        this.values = null;
+        this.typedData = typedData;
+        this.definitionLevels = typedData.definitionLevels();
         this.repetitionLevels = repetitionLevels;
         this.recordCount = recordCount;
         this.column = column;
@@ -79,6 +94,60 @@ public final class ColumnBatch {
      */
     public ColumnSchema getColumn() {
         return column;
+    }
+
+    /**
+     * Direct access to the values array for columnar access.
+     * For flat schemas, index i corresponds to row i.
+     */
+    public Object[] getValues() {
+        return values;
+    }
+
+    /**
+     * Direct access to the definition levels array for columnar access.
+     * For flat schemas, index i corresponds to row i.
+     */
+    public int[] getDefinitionLevels() {
+        return definitionLevels;
+    }
+
+    /**
+     * Check if this batch has typed primitive data.
+     */
+    public boolean hasTypedData() {
+        return typedData != null;
+    }
+
+    /**
+     * Get the typed column data (may be null if not available).
+     */
+    public TypedColumnData getTypedData() {
+        return typedData;
+    }
+
+    /**
+     * Get a long value at the given index. Only valid when hasTypedData() is true
+     * and the column type is INT64.
+     */
+    public long getLongValue(int index) {
+        return ((TypedColumnData.LongColumn) typedData).get(index);
+    }
+
+    /**
+     * Get a double value at the given index. Only valid when hasTypedData() is true
+     * and the column type is DOUBLE.
+     */
+    public double getDoubleValue(int index) {
+        return ((TypedColumnData.DoubleColumn) typedData).get(index);
+    }
+
+    /**
+     * Get an int value at the given index. Only valid when hasTypedData() is true
+     * and the column type is INT32.
+     */
+    public int getIntValue(int index) {
+        return ((TypedColumnData.IntColumn) typedData).get(index);
     }
 
     /**

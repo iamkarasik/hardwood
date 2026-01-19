@@ -390,4 +390,267 @@ public class PageReader {
 
     public static record Page(int numValues, int[] definitionLevels, int[] repetitionLevels, Object[] values) {
     }
+
+    public static record TypedPage(int numValues, int[] definitionLevels, int[] repetitionLevels,
+                                   TypedColumnData columnData) {
+    }
+
+    /**
+     * Read the next page with typed primitive storage.
+     * Returns null if no more pages.
+     */
+    public TypedPage readTypedPage() throws IOException {
+        if (valuesRead >= columnMetaData.numValues()) {
+            return null;
+        }
+
+        // Create a slice of the mapped buffer starting at current position for header parsing
+        MappedByteBufferInputStream headerStream = new MappedByteBufferInputStream(mappedBuffer, currentPosition);
+        ThriftCompactReader headerReader = new ThriftCompactReader(headerStream);
+        PageHeader pageHeader = PageHeaderReader.read(headerReader);
+        int headerSize = headerStream.getBytesRead();
+
+        // Read page data directly from the mapped buffer
+        int compressedSize = pageHeader.compressedPageSize();
+        int dataStart = currentPosition + headerSize;
+        byte[] pageData = new byte[compressedSize];
+        for (int i = 0; i < compressedSize; i++) {
+            pageData[i] = mappedBuffer.get(dataStart + i);
+        }
+
+        // Update position for next page
+        currentPosition += headerSize + compressedSize;
+
+        return switch (pageHeader.type()) {
+            case DICTIONARY_PAGE -> {
+                Decompressor decompressor = DecompressorFactory.getDecompressor(columnMetaData.codec());
+                byte[] uncompressedData = decompressor.decompress(pageData, pageHeader.uncompressedPageSize());
+                parseDictionaryPage(pageHeader.dictionaryPageHeader(), uncompressedData);
+                yield readTypedPage();
+            }
+            case DATA_PAGE -> {
+                Decompressor decompressor = DecompressorFactory.getDecompressor(columnMetaData.codec());
+                byte[] uncompressedData = decompressor.decompress(pageData, pageHeader.uncompressedPageSize());
+                DataPageHeader dataHeader = pageHeader.dataPageHeader();
+                valuesRead += dataHeader.numValues();
+                yield parseTypedDataPage(dataHeader, uncompressedData);
+            }
+            case DATA_PAGE_V2 -> {
+                DataPageHeaderV2 dataHeaderV2 = pageHeader.dataPageHeaderV2();
+                valuesRead += dataHeaderV2.numValues();
+                yield parseTypedDataPageV2(dataHeaderV2, pageData, pageHeader.uncompressedPageSize());
+            }
+            default -> throw new IOException("Unexpected page type: " + pageHeader.type());
+        };
+    }
+
+    private TypedPage parseTypedDataPage(DataPageHeader header, byte[] data) throws IOException {
+        ByteArrayInputStream dataStream = new ByteArrayInputStream(data);
+
+        int[] repetitionLevels = null;
+        if (column.maxRepetitionLevel() > 0) {
+            int repLevelLength = readLittleEndianInt(dataStream);
+            byte[] repLevelData = new byte[repLevelLength];
+            dataStream.read(repLevelData);
+            repetitionLevels = decodeLevels(repLevelData, header.numValues(), column.maxRepetitionLevel());
+        }
+
+        int[] definitionLevels = null;
+        if (column.maxDefinitionLevel() > 0) {
+            int defLevelLength = readLittleEndianInt(dataStream);
+            byte[] defLevelData = new byte[defLevelLength];
+            dataStream.read(defLevelData);
+            definitionLevels = decodeLevels(defLevelData, header.numValues(), column.maxDefinitionLevel());
+        }
+
+        int numNonNullValues = countNonNullValues(header.numValues(), definitionLevels);
+
+        TypedColumnData columnData = decodeTypedValues(
+                header.encoding(), dataStream, header.numValues(), numNonNullValues, definitionLevels);
+
+        return new TypedPage(header.numValues(), definitionLevels, repetitionLevels, columnData);
+    }
+
+    private TypedPage parseTypedDataPageV2(DataPageHeaderV2 header, byte[] pageData, int uncompressedPageSize)
+            throws IOException {
+        int repLevelLen = header.repetitionLevelsByteLength();
+        int defLevelLen = header.definitionLevelsByteLength();
+        int valuesOffset = repLevelLen + defLevelLen;
+        int compressedValuesLen = pageData.length - valuesOffset;
+
+        int[] repetitionLevels = null;
+        if (column.maxRepetitionLevel() > 0 && repLevelLen > 0) {
+            byte[] repLevelData = new byte[repLevelLen];
+            System.arraycopy(pageData, 0, repLevelData, 0, repLevelLen);
+            repetitionLevels = decodeLevels(repLevelData, header.numValues(), column.maxRepetitionLevel());
+        }
+
+        int[] definitionLevels = null;
+        if (column.maxDefinitionLevel() > 0 && defLevelLen > 0) {
+            byte[] defLevelData = new byte[defLevelLen];
+            System.arraycopy(pageData, repLevelLen, defLevelData, 0, defLevelLen);
+            definitionLevels = decodeLevels(defLevelData, header.numValues(), column.maxDefinitionLevel());
+        }
+
+        byte[] valuesData;
+        int uncompressedValuesSize = uncompressedPageSize - repLevelLen - defLevelLen;
+
+        if (header.isCompressed() && compressedValuesLen > 0) {
+            byte[] compressedValues = new byte[compressedValuesLen];
+            System.arraycopy(pageData, valuesOffset, compressedValues, 0, compressedValuesLen);
+            Decompressor decompressor = DecompressorFactory.getDecompressor(columnMetaData.codec());
+            valuesData = decompressor.decompress(compressedValues, uncompressedValuesSize);
+        }
+        else {
+            valuesData = new byte[compressedValuesLen];
+            System.arraycopy(pageData, valuesOffset, valuesData, 0, compressedValuesLen);
+        }
+
+        ByteArrayInputStream valuesStream = new ByteArrayInputStream(valuesData);
+        int numNonNullValues = header.numValues() - header.numNulls();
+
+        TypedColumnData columnData = decodeTypedValues(
+                header.encoding(), valuesStream, header.numValues(), numNonNullValues, definitionLevels);
+
+        return new TypedPage(header.numValues(), definitionLevels, repetitionLevels, columnData);
+    }
+
+    /**
+     * Decode values into TypedColumnData using primitive arrays where possible.
+     */
+    private TypedColumnData decodeTypedValues(Encoding encoding, InputStream dataStream,
+                                              int numValues, int numNonNullValues,
+                                              int[] definitionLevels) throws IOException {
+        int maxDefLevel = column.maxDefinitionLevel();
+        PhysicalType type = column.type();
+
+        // Try to decode into primitive arrays for supported type/encoding combinations
+        switch (encoding) {
+            case PLAIN -> {
+                PlainDecoder decoder = new PlainDecoder(dataStream, type, column.typeLength());
+                return switch (type) {
+                    case INT64 -> {
+                        long[] values = new long[numValues];
+                        decoder.readLongs(values, definitionLevels, maxDefLevel);
+                        yield new TypedColumnData.LongColumn(values, definitionLevels, maxDefLevel, numValues);
+                    }
+                    case DOUBLE -> {
+                        double[] values = new double[numValues];
+                        decoder.readDoubles(values, definitionLevels, maxDefLevel);
+                        yield new TypedColumnData.DoubleColumn(values, definitionLevels, maxDefLevel, numValues);
+                    }
+                    case INT32 -> {
+                        int[] values = new int[numValues];
+                        decoder.readInts(values, definitionLevels, maxDefLevel);
+                        yield new TypedColumnData.IntColumn(values, definitionLevels, maxDefLevel, numValues);
+                    }
+                    default -> {
+                        Object[] values = new Object[numValues];
+                        decoder.readValues(values, definitionLevels, maxDefLevel);
+                        yield new TypedColumnData.ObjectColumn(values, definitionLevels, maxDefLevel, numValues);
+                    }
+                };
+            }
+            case DELTA_BINARY_PACKED -> {
+                DeltaBinaryPackedDecoder decoder = new DeltaBinaryPackedDecoder(dataStream, type);
+                return switch (type) {
+                    case INT64 -> {
+                        long[] values = new long[numValues];
+                        decoder.readLongs(values, definitionLevels, maxDefLevel);
+                        yield new TypedColumnData.LongColumn(values, definitionLevels, maxDefLevel, numValues);
+                    }
+                    case INT32 -> {
+                        int[] values = new int[numValues];
+                        decoder.readInts(values, definitionLevels, maxDefLevel);
+                        yield new TypedColumnData.IntColumn(values, definitionLevels, maxDefLevel, numValues);
+                    }
+                    default -> {
+                        Object[] values = new Object[numValues];
+                        decoder.readValues(values, definitionLevels, maxDefLevel);
+                        yield new TypedColumnData.ObjectColumn(values, definitionLevels, maxDefLevel, numValues);
+                    }
+                };
+            }
+            case BYTE_STREAM_SPLIT -> {
+                byte[] allData = dataStream.readAllBytes();
+                ByteStreamSplitDecoder decoder = new ByteStreamSplitDecoder(
+                        allData, numNonNullValues, type, column.typeLength());
+                return switch (type) {
+                    case INT64 -> {
+                        long[] values = new long[numValues];
+                        decoder.readLongs(values, definitionLevels, maxDefLevel);
+                        yield new TypedColumnData.LongColumn(values, definitionLevels, maxDefLevel, numValues);
+                    }
+                    case DOUBLE -> {
+                        double[] values = new double[numValues];
+                        decoder.readDoubles(values, definitionLevels, maxDefLevel);
+                        yield new TypedColumnData.DoubleColumn(values, definitionLevels, maxDefLevel, numValues);
+                    }
+                    case INT32 -> {
+                        int[] values = new int[numValues];
+                        decoder.readInts(values, definitionLevels, maxDefLevel);
+                        yield new TypedColumnData.IntColumn(values, definitionLevels, maxDefLevel, numValues);
+                    }
+                    default -> {
+                        Object[] values = new Object[numValues];
+                        decoder.readValues(values, definitionLevels, maxDefLevel);
+                        yield new TypedColumnData.ObjectColumn(values, definitionLevels, maxDefLevel, numValues);
+                    }
+                };
+            }
+            case RLE_DICTIONARY, PLAIN_DICTIONARY -> {
+                if (dictionary == null) {
+                    throw new IOException("Dictionary page not found for " + encoding + " encoding");
+                }
+                int bitWidth = dataStream.read();
+                if (bitWidth < 0) {
+                    throw new IOException("Failed to read bit width for dictionary indices");
+                }
+                byte[] indicesData = dataStream.readAllBytes();
+                RleBitPackingHybridDecoder indexDecoder = new RleBitPackingHybridDecoder(
+                        new ByteArrayInputStream(indicesData), bitWidth);
+
+                // Check if we can use primitive dictionary lookup
+                return switch (type) {
+                    case INT64 -> {
+                        long[] primitiveDictionary = new long[dictionary.length];
+                        for (int i = 0; i < dictionary.length; i++) {
+                            primitiveDictionary[i] = (Long) dictionary[i];
+                        }
+                        long[] values = new long[numValues];
+                        indexDecoder.readDictionaryLongs(values, primitiveDictionary, definitionLevels, maxDefLevel);
+                        yield new TypedColumnData.LongColumn(values, definitionLevels, maxDefLevel, numValues);
+                    }
+                    case DOUBLE -> {
+                        double[] primitiveDictionary = new double[dictionary.length];
+                        for (int i = 0; i < dictionary.length; i++) {
+                            primitiveDictionary[i] = (Double) dictionary[i];
+                        }
+                        double[] values = new double[numValues];
+                        indexDecoder.readDictionaryDoubles(values, primitiveDictionary, definitionLevels, maxDefLevel);
+                        yield new TypedColumnData.DoubleColumn(values, definitionLevels, maxDefLevel, numValues);
+                    }
+                    case INT32 -> {
+                        int[] primitiveDictionary = new int[dictionary.length];
+                        for (int i = 0; i < dictionary.length; i++) {
+                            primitiveDictionary[i] = (Integer) dictionary[i];
+                        }
+                        int[] values = new int[numValues];
+                        indexDecoder.readDictionaryInts(values, primitiveDictionary, definitionLevels, maxDefLevel);
+                        yield new TypedColumnData.IntColumn(values, definitionLevels, maxDefLevel, numValues);
+                    }
+                    default -> {
+                        Object[] values = new Object[numValues];
+                        indexDecoder.readDictionaryValues(values, dictionary, definitionLevels, maxDefLevel);
+                        yield new TypedColumnData.ObjectColumn(values, definitionLevels, maxDefLevel, numValues);
+                    }
+                };
+            }
+            default -> {
+                // Fall back to Object[] for other encodings
+                Object[] values = decodeAndMapValues(encoding, dataStream, numValues, numNonNullValues, definitionLevels);
+                return new TypedColumnData.ObjectColumn(values, definitionLevels, maxDefLevel, numValues);
+            }
+        }
+    }
 }

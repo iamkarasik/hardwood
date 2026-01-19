@@ -104,6 +104,63 @@ public class RleBitPackingHybridDecoder {
         }
     }
 
+    /**
+     * Read dictionary indices and look up long values directly into a primitive array.
+     */
+    public void readDictionaryLongs(long[] output, long[] dictionary, int[] definitionLevels, int maxDefLevel)
+            throws IOException {
+        if (definitionLevels == null) {
+            for (int i = 0; i < output.length; i++) {
+                output[i] = dictionary[readInt()];
+            }
+        }
+        else {
+            for (int i = 0; i < output.length; i++) {
+                if (definitionLevels[i] == maxDefLevel) {
+                    output[i] = dictionary[readInt()];
+                }
+            }
+        }
+    }
+
+    /**
+     * Read dictionary indices and look up double values directly into a primitive array.
+     */
+    public void readDictionaryDoubles(double[] output, double[] dictionary, int[] definitionLevels, int maxDefLevel)
+            throws IOException {
+        if (definitionLevels == null) {
+            for (int i = 0; i < output.length; i++) {
+                output[i] = dictionary[readInt()];
+            }
+        }
+        else {
+            for (int i = 0; i < output.length; i++) {
+                if (definitionLevels[i] == maxDefLevel) {
+                    output[i] = dictionary[readInt()];
+                }
+            }
+        }
+    }
+
+    /**
+     * Read dictionary indices and look up int values directly into a primitive array.
+     */
+    public void readDictionaryInts(int[] output, int[] dictionary, int[] definitionLevels, int maxDefLevel)
+            throws IOException {
+        if (definitionLevels == null) {
+            for (int i = 0; i < output.length; i++) {
+                output[i] = dictionary[readInt()];
+            }
+        }
+        else {
+            for (int i = 0; i < output.length; i++) {
+                if (definitionLevels[i] == maxDefLevel) {
+                    output[i] = dictionary[readInt()];
+                }
+            }
+        }
+    }
+
     private void readNextRun() throws IOException {
         // Read header varint
         long header = readUnsignedVarInt();

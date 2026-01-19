@@ -122,6 +122,87 @@ public class DeltaBinaryPackedDecoder implements ValueDecoder {
         }
     }
 
+    /**
+     * Read INT64 values directly into a primitive long array.
+     */
+    @Override
+    public void readLongs(long[] output, int[] definitionLevels, int maxDefLevel) throws IOException {
+        if (definitionLevels == null) {
+            for (int i = 0; i < output.length; i++) {
+                output[i] = readLongValue();
+            }
+        }
+        else {
+            for (int i = 0; i < output.length; i++) {
+                if (definitionLevels[i] == maxDefLevel) {
+                    output[i] = readLongValue();
+                }
+            }
+        }
+    }
+
+    /**
+     * Read INT32 values directly into a primitive int array.
+     */
+    @Override
+    public void readInts(int[] output, int[] definitionLevels, int maxDefLevel) throws IOException {
+        if (definitionLevels == null) {
+            for (int i = 0; i < output.length; i++) {
+                output[i] = (int) readLongValue();
+            }
+        }
+        else {
+            for (int i = 0; i < output.length; i++) {
+                if (definitionLevels[i] == maxDefLevel) {
+                    output[i] = (int) readLongValue();
+                }
+            }
+        }
+    }
+
+    /**
+     * Read a single value as a primitive long (no boxing).
+     */
+    private long readLongValue() throws IOException {
+        if (!headerRead) {
+            readHeader();
+            headerRead = true;
+        }
+
+        if (valuesRead == 0) {
+            valuesRead = 1;
+            return firstValue;
+        }
+
+        if (valuesRead >= totalValueCount) {
+            throw new IOException("No more values to read");
+        }
+
+        // Check if we need to start a new block (first value after header doesn't count)
+        int valuesAfterFirst = valuesRead - 1;
+        if (valuesAfterFirst % blockSize == 0) {
+            readBlockHeader();
+        }
+
+        // Check if we need a new miniblock
+        if (valuesInCurrentMiniblock >= valuesPerMiniblock) {
+            currentMiniblock++;
+            valuesInCurrentMiniblock = 0;
+            if (currentMiniblock < miniblockCount) {
+                loadMiniblock();
+            }
+        }
+
+        // Unpack delta and reconstruct value
+        long packedDelta = unpackValue(bitWidths[currentMiniblock]);
+        long delta = minDelta + packedDelta;
+        lastValue += delta;
+        valuesInCurrentMiniblock++;
+        valuesRead++;
+
+        return lastValue;
+    }
+
     private Object boxValue(long value) {
         // Must use explicit boxing to avoid type widening in ternary expression
         if (type == PhysicalType.INT32) {
