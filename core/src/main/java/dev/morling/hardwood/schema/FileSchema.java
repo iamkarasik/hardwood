@@ -90,22 +90,18 @@ public class FileSchema {
      * Returns true if this schema supports direct columnar access.
      * For such schemas, enabling direct columnar access without record assembly.
      * <p>
-     * A schema supports columnar access if:
-     * <ul>
-     *   <li>The root node has only primitive children (no groups/nesting)</li>
-     *   <li>No repeated fields (maxRepetitionLevel == 0 for all columns)</li>
-     * </ul>
-     * Optional fields are supported - value indices are computed from definition levels.
+     * A schema supports columnar access if all top-level fields are primitives
+     * (no nested structs, lists, or maps) and no columns have repetition.
      * </p>
      */
     public boolean isFlatSchema() {
-        // Check if root has only primitive children (no groups = no nesting)
+        // Check that all top-level fields are primitives (no nested structs)
         for (SchemaNode child : rootNode.children()) {
             if (child instanceof SchemaNode.GroupNode) {
                 return false;
             }
         }
-        // Check that no columns have repetition (no lists/repeated fields)
+        // Also check repetition levels
         for (ColumnSchema col : columns) {
             if (col.maxRepetitionLevel() > 0) {
                 return false;

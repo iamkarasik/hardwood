@@ -66,10 +66,10 @@ public class RleBitPackingHybridDecoder {
     }
 
     /**
-     * Read boolean values directly into output array, placing them at positions indicated by definition levels.
+     * Read boolean values directly into a primitive boolean array.
      * Used for RLE-encoded boolean columns.
      */
-    public void readBooleans(Object[] output, int[] definitionLevels, int maxDefLevel) throws IOException {
+    public void readBooleans(boolean[] output, int[] definitionLevels, int maxDefLevel) throws IOException {
         if (definitionLevels == null) {
             for (int i = 0; i < output.length; i++) {
                 output[i] = readInt() != 0;
@@ -79,26 +79,6 @@ public class RleBitPackingHybridDecoder {
             for (int i = 0; i < output.length; i++) {
                 if (definitionLevels[i] == maxDefLevel) {
                     output[i] = readInt() != 0;
-                }
-            }
-        }
-    }
-
-    /**
-     * Read dictionary indices and look up values, placing them directly at positions indicated by definition levels.
-     * Used for RLE_DICTIONARY encoded columns.
-     */
-    public void readDictionaryValues(Object[] output, Object[] dictionary, int[] definitionLevels, int maxDefLevel)
-            throws IOException {
-        if (definitionLevels == null) {
-            for (int i = 0; i < output.length; i++) {
-                output[i] = dictionary[readInt()];
-            }
-        }
-        else {
-            for (int i = 0; i < output.length; i++) {
-                if (definitionLevels[i] == maxDefLevel) {
-                    output[i] = dictionary[readInt()];
                 }
             }
         }
@@ -146,6 +126,44 @@ public class RleBitPackingHybridDecoder {
      * Read dictionary indices and look up int values directly into a primitive array.
      */
     public void readDictionaryInts(int[] output, int[] dictionary, int[] definitionLevels, int maxDefLevel)
+            throws IOException {
+        if (definitionLevels == null) {
+            for (int i = 0; i < output.length; i++) {
+                output[i] = dictionary[readInt()];
+            }
+        }
+        else {
+            for (int i = 0; i < output.length; i++) {
+                if (definitionLevels[i] == maxDefLevel) {
+                    output[i] = dictionary[readInt()];
+                }
+            }
+        }
+    }
+
+    /**
+     * Read dictionary indices and look up float values directly into a primitive array.
+     */
+    public void readDictionaryFloats(float[] output, float[] dictionary, int[] definitionLevels, int maxDefLevel)
+            throws IOException {
+        if (definitionLevels == null) {
+            for (int i = 0; i < output.length; i++) {
+                output[i] = dictionary[readInt()];
+            }
+        }
+        else {
+            for (int i = 0; i < output.length; i++) {
+                if (definitionLevels[i] == maxDefLevel) {
+                    output[i] = dictionary[readInt()];
+                }
+            }
+        }
+    }
+
+    /**
+     * Read dictionary indices and look up byte array values directly into a byte[][] array.
+     */
+    public void readDictionaryByteArrays(byte[][] output, byte[][] dictionary, int[] definitionLevels, int maxDefLevel)
             throws IOException {
         if (definitionLevels == null) {
             for (int i = 0; i < output.length; i++) {

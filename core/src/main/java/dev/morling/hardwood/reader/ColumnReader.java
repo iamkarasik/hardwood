@@ -11,13 +11,12 @@ import java.io.IOException;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 import dev.morling.hardwood.internal.conversion.LogicalTypeConverter;
-import dev.morling.hardwood.internal.reader.ColumnBatch;
+import dev.morling.hardwood.internal.reader.ColumnValueIterator;
+import dev.morling.hardwood.internal.reader.Page;
 import dev.morling.hardwood.internal.reader.PageReader;
-import dev.morling.hardwood.internal.reader.TypedColumnData;
 import dev.morling.hardwood.metadata.ColumnChunk;
 import dev.morling.hardwood.metadata.ColumnMetaData;
 import dev.morling.hardwood.schema.ColumnSchema;
@@ -35,13 +34,9 @@ public class ColumnReader {
     private final long totalValues;
 
     // State for incremental reading
-    private PageReader.Page currentPage;
+    private Page currentPage;
     private int currentPagePosition;
     private long valuesRead;
-
-    // State for typed batch reading
-    private PageReader.TypedPage currentTypedPage;
-    private int currentTypedPagePosition;
 
     // Lookahead buffer (single value)
     private ValueWithLevels lookahead;
@@ -115,12 +110,12 @@ public class ColumnReader {
         Object value;
         if (maxDefinitionLevel == 0) {
             // Required field - all values present
-            value = currentPage.values()[currentPagePosition];
+            value = getPageValue(currentPage, currentPagePosition);
         }
         else {
             // Optional field - check definition level
             if (currentPage.definitionLevels()[currentPagePosition] == maxDefinitionLevel) {
-                value = currentPage.values()[currentPagePosition];
+                value = getPageValue(currentPage, currentPagePosition);
             }
             else {
                 value = null;
@@ -230,7 +225,7 @@ public class ColumnReader {
      */
     private ValueWithLevels readFromPage() throws IOException {
         ensurePageLoaded();
-        if (currentPage == null || currentPagePosition >= currentPage.numValues()) {
+        if (currentPage == null || currentPagePosition >= currentPage.size()) {
             return null;
         }
 
@@ -238,7 +233,7 @@ public class ColumnReader {
         int repLevel = maxRepetitionLevel > 0 && currentPage.repetitionLevels() != null
                 ? currentPage.repetitionLevels()[currentPagePosition]
                 : 0;
-        Object value = currentPage.values()[currentPagePosition];
+        Object value = getPageValue(currentPage, currentPagePosition);
 
         currentPagePosition++;
         valuesRead++;
@@ -246,10 +241,24 @@ public class ColumnReader {
     }
 
     /**
+     * Get a value from a page at a given index using typed accessors.
+     */
+    private static Object getPageValue(Page page, int index) {
+        return switch (page) {
+            case Page.BooleanPage p -> p.get(index);
+            case Page.IntPage p -> p.get(index);
+            case Page.LongPage p -> p.get(index);
+            case Page.FloatPage p -> p.get(index);
+            case Page.DoublePage p -> p.get(index);
+            case Page.ByteArrayPage p -> p.get(index);
+        };
+    }
+
+    /**
      * Ensure a page is loaded.
      */
     private void ensurePageLoaded() throws IOException {
-        if (currentPage == null || currentPagePosition >= currentPage.numValues()) {
+        if (currentPage == null || currentPagePosition >= currentPage.size()) {
             currentPage = pageReader.readPage();
             currentPagePosition = 0;
         }
@@ -258,260 +267,28 @@ public class ColumnReader {
     private record ValueWithLevels(Object value, int defLevel, int repLevel) {
     }
 
-    /**
-     * Get the current page, loading next page if needed.
-     * Returns null if no more pages.
-     */
-    private PageReader.Page getCurrentPage() throws IOException {
-        if (currentPage == null || currentPagePosition >= currentPage.numValues()) {
-            currentPage = pageReader.readPage();
-            currentPagePosition = 0;
-        }
-        return currentPage;
-    }
-
-    /**
-     * Read a batch of values from this column.
-     * Returns raw values with their definition and repetition levels,
-     * allowing the caller to assemble nested structures.
-     *
-     * @param batchSize maximum number of records to read
-     * @return ColumnBatch with values and levels for up to batchSize records
-     */
-    ColumnBatch readBatch(int batchSize) throws IOException {
-        // Use primitive arrays that grow as needed
-        int capacity = batchSize * 2;  // Initial capacity, will grow if needed
-        Object[] values = new Object[capacity];
-        int[] defLevels = new int[capacity];
-        int[] repLevels = new int[capacity];
-        int valueCount = 0;
-        int recordCount = 0;
-
-        // Handle any lookahead value from previous batch
-        if (lookahead != null) {
-            values[0] = lookahead.value;
-            defLevels[0] = lookahead.defLevel;
-            repLevels[0] = lookahead.repLevel;
-            valueCount = 1;
-            lookahead = null;
-        }
-
-        while (recordCount < batchSize && hasNext()) {
-            PageReader.Page page = getCurrentPage();
-            if (page == null) {
-                break;
-            }
-
-            int pageStart = currentPagePosition;
-            int pageEnd = page.numValues();
-
-            // Find how many values to take: scan for record boundaries
-            int endPos = pageEnd;
-            int recordsFound = 0;
-
-            for (int i = pageStart; i < pageEnd; i++) {
-                int rep = page.repetitionLevels() != null ? page.repetitionLevels()[i] : 0;
-                if (rep == 0 && (valueCount > 0 || i > pageStart)) {
-                    // Start of a new record - check if adding it would exceed batch size
-                    if (recordCount + recordsFound + 1 >= batchSize) {
-                        endPos = i;  // Don't include this record in current batch
-                        break;
-                    }
-                    recordsFound++;
-                }
-            }
-
-            int copyCount = endPos - pageStart;
-
-            // Grow arrays if needed
-            if (valueCount + copyCount > values.length) {
-                int newCapacity = Math.max(values.length * 2, valueCount + copyCount);
-                values = Arrays.copyOf(values, newCapacity);
-                defLevels = Arrays.copyOf(defLevels, newCapacity);
-                repLevels = Arrays.copyOf(repLevels, newCapacity);
-            }
-
-            // Copy values directly from page arrays
-            System.arraycopy(page.values(), pageStart, values, valueCount, copyCount);
-            if (page.definitionLevels() != null) {
-                System.arraycopy(page.definitionLevels(), pageStart, defLevels, valueCount, copyCount);
-            }
-            if (page.repetitionLevels() != null) {
-                System.arraycopy(page.repetitionLevels(), pageStart, repLevels, valueCount, copyCount);
-            }
-
-            // Count records in copied portion
-            for (int i = 0; i < copyCount; i++) {
-                int rep = page.repetitionLevels() != null ? page.repetitionLevels()[pageStart + i] : 0;
-                if (rep == 0 && (valueCount + i) > 0) {
-                    recordCount++;
-                }
-            }
-            // Count the first record if this is the start
-            if (valueCount == 0 && copyCount > 0) {
-                recordCount++;
-            }
-
-            // Update position
-            currentPagePosition = endPos;
-            valuesRead += copyCount;
-            valueCount += copyCount;
-
-            // If we hit the batch limit mid-page, stop
-            if (endPos < pageEnd) {
-                break;
-            }
-        }
-
-        // Trim arrays to actual size
-        return new ColumnBatch(
-                valueCount == values.length ? values : Arrays.copyOf(values, valueCount),
-                valueCount == defLevels.length ? defLevels : Arrays.copyOf(defLevels, valueCount),
-                valueCount == repLevels.length ? repLevels : Arrays.copyOf(repLevels, valueCount),
-                recordCount,
-                column);
-    }
-
-    /**
-     * Read a batch of values with typed primitive data where possible.
-     * For flat schemas (no repetition), this returns TypedColumnData with primitive arrays.
-     *
-     * @param batchSize maximum number of records to read
-     * @return ColumnBatch with typed data when available
-     */
-    ColumnBatch readTypedBatch(int batchSize) throws IOException {
-        // For columns with repetition, fall back to Object[] since records can span multiple values
-        if (maxRepetitionLevel > 0) {
-            return readBatch(batchSize);
-        }
-
-        // For flat schemas, each value is one record. Read exactly batchSize records.
-        int recordsNeeded = batchSize;
-        int recordsCollected = 0;
-
-        // We'll collect slices from pages and combine them
-        List<TypedSlice> slices = new ArrayList<>();
-
-        while (recordsCollected < recordsNeeded && hasNext()) {
-            // Ensure we have a typed page loaded
-            if (currentTypedPage == null || currentTypedPagePosition >= currentTypedPage.numValues()) {
-                currentTypedPage = pageReader.readTypedPage();
-                currentTypedPagePosition = 0;
-                if (currentTypedPage == null) {
-                    break;
-                }
-            }
-
-            // Calculate how many records to take from this page
-            int availableInPage = currentTypedPage.numValues() - currentTypedPagePosition;
-            int toTake = Math.min(availableInPage, recordsNeeded - recordsCollected);
-
-            // Record this slice
-            slices.add(new TypedSlice(currentTypedPage, currentTypedPagePosition, toTake));
-
-            currentTypedPagePosition += toTake;
-            valuesRead += toTake;
-            recordsCollected += toTake;
-        }
-
-        if (slices.isEmpty()) {
-            return new ColumnBatch(new Object[0], new int[0], new int[0], 0, column);
-        }
-
-        // If single slice covering the whole page, return directly
-        if (slices.size() == 1) {
-            TypedSlice slice = slices.get(0);
-            if (slice.start == 0 && slice.count == slice.page.numValues()) {
-                return new ColumnBatch(slice.page.columnData(), slice.page.repetitionLevels(),
-                        slice.count, column);
-            }
-        }
-
-        // Combine slices into a single batch
-        return combineTypedSlices(slices, recordsCollected);
-    }
-
-    private record TypedSlice(PageReader.TypedPage page, int start, int count) {
-    }
-
-    /**
-     * Combine typed slices into a single ColumnBatch.
-     */
-    private ColumnBatch combineTypedSlices(List<TypedSlice> slices, int recordCount) {
-        TypedSlice firstSlice = slices.get(0);
-        TypedColumnData firstData = firstSlice.page.columnData();
-        int maxDefLevel = firstData.maxDefinitionLevel();
-
-        if (firstData instanceof TypedColumnData.LongColumn) {
-            long[] combined = new long[recordCount];
-            int[] defLevels = new int[recordCount];
-            int pos = 0;
-            for (TypedSlice slice : slices) {
-                TypedColumnData.LongColumn col = (TypedColumnData.LongColumn) slice.page.columnData();
-                System.arraycopy(col.values(), slice.start, combined, pos, slice.count);
-                if (col.definitionLevels() != null) {
-                    System.arraycopy(col.definitionLevels(), slice.start, defLevels, pos, slice.count);
-                }
-                pos += slice.count;
-            }
-            TypedColumnData combinedData = new TypedColumnData.LongColumn(
-                    combined, defLevels, maxDefLevel, recordCount);
-            return new ColumnBatch(combinedData, null, recordCount, column);
-        }
-        else if (firstData instanceof TypedColumnData.DoubleColumn) {
-            double[] combined = new double[recordCount];
-            int[] defLevels = new int[recordCount];
-            int pos = 0;
-            for (TypedSlice slice : slices) {
-                TypedColumnData.DoubleColumn col = (TypedColumnData.DoubleColumn) slice.page.columnData();
-                System.arraycopy(col.values(), slice.start, combined, pos, slice.count);
-                if (col.definitionLevels() != null) {
-                    System.arraycopy(col.definitionLevels(), slice.start, defLevels, pos, slice.count);
-                }
-                pos += slice.count;
-            }
-            TypedColumnData combinedData = new TypedColumnData.DoubleColumn(
-                    combined, defLevels, maxDefLevel, recordCount);
-            return new ColumnBatch(combinedData, null, recordCount, column);
-        }
-        else if (firstData instanceof TypedColumnData.IntColumn) {
-            int[] combined = new int[recordCount];
-            int[] defLevels = new int[recordCount];
-            int pos = 0;
-            for (TypedSlice slice : slices) {
-                TypedColumnData.IntColumn col = (TypedColumnData.IntColumn) slice.page.columnData();
-                System.arraycopy(col.values(), slice.start, combined, pos, slice.count);
-                if (col.definitionLevels() != null) {
-                    System.arraycopy(col.definitionLevels(), slice.start, defLevels, pos, slice.count);
-                }
-                pos += slice.count;
-            }
-            TypedColumnData combinedData = new TypedColumnData.IntColumn(
-                    combined, defLevels, maxDefLevel, recordCount);
-            return new ColumnBatch(combinedData, null, recordCount, column);
-        }
-        else {
-            // ObjectColumn - combine Object arrays
-            Object[] combined = new Object[recordCount];
-            int[] defLevels = new int[recordCount];
-            int pos = 0;
-            for (TypedSlice slice : slices) {
-                TypedColumnData.ObjectColumn col = (TypedColumnData.ObjectColumn) slice.page.columnData();
-                System.arraycopy(col.values(), slice.start, combined, pos, slice.count);
-                if (col.definitionLevels() != null) {
-                    System.arraycopy(col.definitionLevels(), slice.start, defLevels, pos, slice.count);
-                }
-                pos += slice.count;
-            }
-            return new ColumnBatch(combined, defLevels, null, recordCount, column);
-        }
-    }
-
     public ColumnSchema getColumnSchema() {
         return column;
     }
 
     public ColumnMetaData getColumnMetaData() {
         return columnMetaData;
+    }
+
+    /**
+     * Create an iterator for this column.
+     *
+     * <p>The iterator provides record-by-record iteration with typed accessors
+     * to avoid boxing overhead. It automatically fetches pages from the underlying
+     * PageReader as needed.</p>
+     *
+     * <p><strong>Note:</strong> After calling this method, do not use the batch-based
+     * methods ({@link #readBatch}, {@link #readTypedBatch}) as they share state with
+     * the iterator.</p>
+     *
+     * @return a new ColumnValueIterator for this column
+     */
+    ColumnValueIterator createIterator() {
+        return new ColumnValueIterator(pageReader, column, totalValues);
     }
 }

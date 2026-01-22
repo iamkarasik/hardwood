@@ -31,13 +31,11 @@ public class ByteStreamSplitDecoder implements ValueDecoder {
     private final byte[] data;
     private final int numValues;
     private final int byteWidth;
-    private final PhysicalType type;
     private int currentIndex = 0;
 
     public ByteStreamSplitDecoder(byte[] data, int numValues, PhysicalType type, Integer typeLength) {
         this.data = data;
         this.numValues = numValues;
-        this.type = type;
         this.byteWidth = getByteWidth(type, typeLength);
 
         // Validate data length
@@ -62,56 +60,6 @@ public class ByteStreamSplitDecoder implements ValueDecoder {
             default -> throw new UnsupportedOperationException(
                     "BYTE_STREAM_SPLIT not supported for type: " + type);
         };
-    }
-
-    /**
-     * Read the next value.
-     */
-    public Object readValue() throws IOException {
-        if (currentIndex >= numValues) {
-            throw new IOException("No more values to read");
-        }
-
-        byte[] valueBytes = new byte[byteWidth];
-
-        // Gather bytes from each stream
-        // Stream k starts at offset (k * numValues) and contains byte k of all values
-        for (int k = 0; k < byteWidth; k++) {
-            int streamOffset = k * numValues;
-            valueBytes[k] = data[streamOffset + currentIndex];
-        }
-
-        currentIndex++;
-
-        return convertToValue(valueBytes);
-    }
-
-    private Object convertToValue(byte[] bytes) {
-        ByteBuffer buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN);
-        return switch (type) {
-            case FLOAT -> buffer.getFloat();
-            case DOUBLE -> buffer.getDouble();
-            case INT32 -> buffer.getInt();
-            case INT64 -> buffer.getLong();
-            case FIXED_LEN_BYTE_ARRAY -> bytes;
-            default -> throw new UnsupportedOperationException("Unsupported type: " + type);
-        };
-    }
-
-    @Override
-    public void readValues(Object[] output, int[] definitionLevels, int maxDefLevel) throws IOException {
-        if (definitionLevels == null) {
-            for (int i = 0; i < output.length; i++) {
-                output[i] = readValue();
-            }
-        }
-        else {
-            for (int i = 0; i < output.length; i++) {
-                if (definitionLevels[i] == maxDefLevel) {
-                    output[i] = readValue();
-                }
-            }
-        }
     }
 
     /**
@@ -187,6 +135,55 @@ public class ByteStreamSplitDecoder implements ValueDecoder {
                     gatherBytes(valueBytes);
                     buffer.rewind();
                     output[i] = buffer.getInt();
+                }
+            }
+        }
+    }
+
+    /**
+     * Read FLOAT values directly into a primitive float array.
+     */
+    @Override
+    public void readFloats(float[] output, int[] definitionLevels, int maxDefLevel) throws IOException {
+        byte[] valueBytes = new byte[4];
+        ByteBuffer buffer = ByteBuffer.wrap(valueBytes).order(ByteOrder.LITTLE_ENDIAN);
+
+        if (definitionLevels == null) {
+            for (int i = 0; i < output.length; i++) {
+                gatherBytes(valueBytes);
+                buffer.rewind();
+                output[i] = buffer.getFloat();
+            }
+        }
+        else {
+            for (int i = 0; i < output.length; i++) {
+                if (definitionLevels[i] == maxDefLevel) {
+                    gatherBytes(valueBytes);
+                    buffer.rewind();
+                    output[i] = buffer.getFloat();
+                }
+            }
+        }
+    }
+
+    /**
+     * Read FIXED_LEN_BYTE_ARRAY values directly into a byte[][] array.
+     */
+    @Override
+    public void readByteArrays(byte[][] output, int[] definitionLevels, int maxDefLevel) throws IOException {
+        if (definitionLevels == null) {
+            for (int i = 0; i < output.length; i++) {
+                byte[] valueBytes = new byte[byteWidth];
+                gatherBytes(valueBytes);
+                output[i] = valueBytes;
+            }
+        }
+        else {
+            for (int i = 0; i < output.length; i++) {
+                if (definitionLevels[i] == maxDefLevel) {
+                    byte[] valueBytes = new byte[byteWidth];
+                    gatherBytes(valueBytes);
+                    output[i] = valueBytes;
                 }
             }
         }

@@ -14,101 +14,41 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
-import dev.morling.hardwood.internal.reader.ColumnBatch;
+import dev.morling.hardwood.internal.reader.ColumnValueIterator;
 import dev.morling.hardwood.internal.reader.ColumnarPqRowImpl;
 import dev.morling.hardwood.internal.reader.MutableStruct;
 import dev.morling.hardwood.internal.reader.PqRowImpl;
 import dev.morling.hardwood.internal.reader.RecordAssembler;
+import dev.morling.hardwood.internal.reader.TypedColumnData;
 import dev.morling.hardwood.metadata.RowGroup;
 import dev.morling.hardwood.row.PqRow;
 import dev.morling.hardwood.schema.FileSchema;
 
 /**
  * Provides row-oriented iteration over a Parquet file.
- * Internally uses parallel batch fetching from column readers for performance.
- * Supports reading across multiple row groups.
+ * Uses parallel prefetching of column values for efficient reading.
  */
 public class RowReader implements Iterable<PqRow>, AutoCloseable {
 
-    private static final int DEFAULT_BATCH_SIZE = 5000;
+    private static final int PREFETCH_BATCH_SIZE = 16384;
+    private static final ExecutorService EXECUTOR = Executors.newVirtualThreadPerTaskExecutor();
 
     private final FileSchema schema;
     private final FileChannel channel;
     private final List<RowGroup> rowGroups;
-    private final ExecutorService executor;
-    private final int batchSize;
-    private final long totalRows;
     private final boolean flatSchema;
-
-    // Current row group state
-    private int currentRowGroupIndex;
-    private List<ColumnReader> currentColumnReaders;
-
-    // Current batch state
-    private List<ColumnBatch> currentBatches;
-    private int currentBatchSize;  // Minimum size across all column batches
-    private int currentBatchRecordsRead;
-    private long totalRowsRead;
     private boolean closed;
 
-    /**
-     * Create a RowReader with default batch size.
-     */
-    public RowReader(FileSchema schema,
-                     FileChannel channel,
-                     List<RowGroup> rowGroups,
-                     ExecutorService executor,
-                     long totalRows) {
-        this(schema, channel, rowGroups, executor, totalRows, DEFAULT_BATCH_SIZE);
-    }
-
-    /**
-     * Create a RowReader with custom batch size.
-     */
-    public RowReader(FileSchema schema,
-                     FileChannel channel,
-                     List<RowGroup> rowGroups,
-                     ExecutorService executor,
-                     long totalRows,
-                     int batchSize) {
+    public RowReader(FileSchema schema, FileChannel channel, List<RowGroup> rowGroups, long totalRows) {
         this.schema = schema;
         this.channel = channel;
         this.rowGroups = rowGroups;
-        this.executor = executor;
-        this.totalRows = totalRows;
-        this.batchSize = batchSize;
         this.flatSchema = schema.isFlatSchema();
-        this.currentRowGroupIndex = 0;
-        this.currentColumnReaders = null;
-        this.currentBatches = null;
-        this.currentBatchRecordsRead = 0;
-        this.totalRowsRead = 0;
-        this.closed = false;
-    }
-
-    /**
-     * Initialize column readers for the current row group.
-     */
-    private void initializeCurrentRowGroupReaders() {
-        if (currentRowGroupIndex >= rowGroups.size()) {
-            currentColumnReaders = null;
-            return;
-        }
-
-        RowGroup rowGroup = rowGroups.get(currentRowGroupIndex);
-        currentColumnReaders = new ArrayList<>();
-
-        try {
-            for (int i = 0; i < schema.getColumnCount(); i++) {
-                currentColumnReaders.add(new ColumnReader(channel, schema.getColumn(i), rowGroup.columns().get(i)));
-            }
-        }
-        catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
     }
 
     @Override
@@ -116,120 +56,43 @@ public class RowReader implements Iterable<PqRow>, AutoCloseable {
         return new PqRowIterator();
     }
 
-    /**
-     * Fetch the next batch of values from all columns in parallel.
-     * Automatically moves to the next row group when current one is exhausted.
-     */
-    private void fetchNextBatch() throws IOException {
-        if (closed) {
-            throw new IllegalStateException("RowReader is closed");
-        }
-
-        // Check if we need to move to the next row group
-        if (currentColumnReaders == null || !currentColumnReaders.get(0).hasNext()) {
-            currentRowGroupIndex++;
-            if (currentRowGroupIndex >= rowGroups.size()) {
-                // No more row groups
-                currentBatches = null;
-                return;
-            }
-            initializeCurrentRowGroupReaders();
-        }
-
-        // Create futures for parallel batch fetching
-        List<CompletableFuture<ColumnBatch>> futures = new ArrayList<>();
-        for (ColumnReader reader : currentColumnReaders) {
-            CompletableFuture<ColumnBatch> future = CompletableFuture.supplyAsync(() -> {
-                try {
-                    // Use typed batch for flat schemas (no boxing overhead)
-                    if (flatSchema) {
-                        return reader.readTypedBatch(batchSize);
-                    }
-                    return reader.readBatch(batchSize);
-                }
-                catch (IOException e) {
-                    throw new UncheckedIOException(e);
-                }
-            }, executor);
-            futures.add(future);
-        }
-
-        // Wait for all futures to complete
-        try {
-            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
-        }
-        catch (Exception e) {
-            if (e.getCause() instanceof UncheckedIOException) {
-                throw ((UncheckedIOException) e.getCause()).getCause();
-            }
-            throw new IOException("Failed to fetch column batches", e);
-        }
-
-        // Collect results
-        currentBatches = new ArrayList<>();
-        for (CompletableFuture<ColumnBatch> future : futures) {
-            try {
-                currentBatches.add(future.get());
-            }
-            catch (Exception e) {
-                if (e.getCause() instanceof UncheckedIOException) {
-                    throw ((UncheckedIOException) e.getCause()).getCause();
-                }
-                throw new IOException("Failed to get column batch", e);
-            }
-        }
-
-        // Compute minimum batch size across all columns (they may differ due to page boundaries)
-        currentBatchSize = Integer.MAX_VALUE;
-        for (ColumnBatch batch : currentBatches) {
-            currentBatchSize = Math.min(currentBatchSize, batch.size());
-        }
-        if (currentBatches.isEmpty()) {
-            currentBatchSize = 0;
-        }
-
-        currentBatchRecordsRead = 0;
-    }
-
     @Override
     public void close() {
         closed = true;
-        // Note: We don't shut down the executor here as it may be shared
-        // The caller (ParquetFileReader) is responsible for managing the executor lifecycle
     }
 
-    /**
-     * Iterator implementation for type-safe PqRow access.
-     */
+    private List<ColumnValueIterator> createColumnIterators(RowGroup rowGroup) {
+        List<ColumnValueIterator> iterators = new ArrayList<>();
+        try {
+            for (int i = 0; i < schema.getColumnCount(); i++) {
+                ColumnReader reader = new ColumnReader(channel, schema.getColumn(i), rowGroup.columns().get(i));
+                iterators.add(reader.createIterator());
+            }
+        }
+        catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        return iterators;
+    }
+
     private class PqRowIterator implements Iterator<PqRow> {
 
         private final RecordAssembler assembler = new RecordAssembler(schema);
+        private final Iterator<RowGroup> rowGroupIterator = rowGroups.iterator();
+        private List<ColumnValueIterator> columnIterators;
+        private List<TypedColumnData> prefetchedColumns;
+        private int prefetchedRecordCount;
+        private int currentRecordIndex;
 
         @Override
         public boolean hasNext() {
-            if (closed || totalRowsRead >= totalRows) {
+            if (closed) {
                 return false;
             }
-
-            // Initialize first row group if needed
-            if (currentColumnReaders == null && currentRowGroupIndex == 0) {
-                initializeCurrentRowGroupReaders();
+            if (currentRecordIndex < prefetchedRecordCount) {
+                return true;
             }
-
-            // Check if we need to fetch a new batch
-            if (currentBatches == null ||
-                    (currentBatchRecordsRead >= currentBatchSize && totalRowsRead < totalRows)) {
-                try {
-                    fetchNextBatch();
-                }
-                catch (IOException e) {
-                    throw new UncheckedIOException(e);
-                }
-            }
-
-            return currentBatches != null &&
-                    !currentBatches.isEmpty() &&
-                    currentBatchRecordsRead < currentBatchSize;
+            return prefetchBatch();
         }
 
         @Override
@@ -237,25 +100,67 @@ public class RowReader implements Iterable<PqRow>, AutoCloseable {
             if (!hasNext()) {
                 throw new NoSuchElementException("No more rows available");
             }
+            return fetchNextRow();
+        }
 
+        private PqRow fetchNextRow() {
             PqRow row;
             if (flatSchema) {
-                // Fast path: direct columnar access for flat schemas
-                row = new ColumnarPqRowImpl(currentBatches, currentBatchRecordsRead, schema);
+                row = new ColumnarPqRowImpl(prefetchedColumns, currentRecordIndex, schema);
             }
             else {
-                // Slow path: assemble row for nested schemas
-                for (ColumnBatch batch : currentBatches) {
-                    batch.nextRecord();
-                }
-                MutableStruct rowValues = assembler.assembleRow(currentBatches);
+                MutableStruct rowValues = assembler.assembleRow(prefetchedColumns, currentRecordIndex);
                 row = new PqRowImpl(rowValues, schema);
             }
-
-            currentBatchRecordsRead++;
-            totalRowsRead++;
-
+            currentRecordIndex++;
             return row;
+        }
+
+        private boolean prefetchBatch() {
+            while (true) {
+                if (columnIterators != null) {
+                    if (prefetchFromCurrentIterators()) {
+                        return true;
+                    }
+                }
+
+                if (!rowGroupIterator.hasNext()) {
+                    return false;
+                }
+                columnIterators = createColumnIterators(rowGroupIterator.next());
+            }
+        }
+
+        private boolean prefetchFromCurrentIterators() {
+            List<Future<TypedColumnData>> futures = new ArrayList<>();
+
+            for (ColumnValueIterator iter : columnIterators) {
+                futures.add(EXECUTOR.submit(() -> iter.prefetch(PREFETCH_BATCH_SIZE)));
+            }
+
+            try {
+                prefetchedColumns = new ArrayList<>();
+                for (Future<TypedColumnData> future : futures) {
+                    prefetchedColumns.add(future.get());
+                }
+
+                prefetchedRecordCount = prefetchedColumns.isEmpty() ? 0 : prefetchedColumns.get(0).recordCount();
+                currentRecordIndex = 0;
+
+                if (prefetchedRecordCount == 0) {
+                    columnIterators = null;
+                    return false;
+                }
+
+                return true;
+            }
+            catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException("Interrupted while prefetching", e);
+            }
+            catch (ExecutionException e) {
+                throw new RuntimeException("Failed to prefetch column data", e.getCause());
+            }
         }
     }
 }

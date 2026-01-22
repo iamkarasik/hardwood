@@ -10,8 +10,6 @@ package dev.morling.hardwood.internal.encoding;
 import java.io.IOException;
 import java.io.InputStream;
 
-import dev.morling.hardwood.metadata.PhysicalType;
-
 /**
  * Decoder for DELTA_BYTE_ARRAY encoding.
  * <p>
@@ -75,10 +73,9 @@ public class DeltaByteArrayDecoder implements ValueDecoder {
 
         // Read all prefix lengths using DELTA_BINARY_PACKED
         // Prefix lengths are always encoded as INT32 per the spec
-        DeltaBinaryPackedDecoder prefixDecoder = new DeltaBinaryPackedDecoder(input, PhysicalType.INT32);
+        DeltaBinaryPackedDecoder prefixDecoder = new DeltaBinaryPackedDecoder(input);
         for (int i = 0; i < numNonNullValues; i++) {
-            Object value = prefixDecoder.readValue();
-            prefixLengths[i] = ((Number) value).intValue();
+            prefixLengths[i] = prefixDecoder.readInt();
         }
 
         // Create the suffix decoder (uses DELTA_LENGTH_BYTE_ARRAY)
@@ -118,7 +115,7 @@ public class DeltaByteArrayDecoder implements ValueDecoder {
     }
 
     @Override
-    public void readValues(Object[] output, int[] definitionLevels, int maxDefLevel) throws IOException {
+    public void readByteArrays(byte[][] output, int[] definitionLevels, int maxDefLevel) throws IOException {
         if (!initialized) {
             throw new IOException("Must call initialize() before reading values");
         }

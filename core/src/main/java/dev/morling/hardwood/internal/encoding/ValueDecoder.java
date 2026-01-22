@@ -27,15 +27,6 @@ public interface ValueDecoder {
     }
 
     /**
-     * Read values directly into output array at positions indicated by definition levels.
-     *
-     * @param output the output array to populate
-     * @param definitionLevels definition levels indicating which positions have values (null for required columns)
-     * @param maxDefLevel the maximum definition level (value is present when defLevel == maxDefLevel)
-     */
-    void readValues(Object[] output, int[] definitionLevels, int maxDefLevel) throws IOException;
-
-    /**
      * Read long values directly into a primitive array.
      *
      * @param output the output array to populate
@@ -66,5 +57,38 @@ public interface ValueDecoder {
      */
     default void readInts(int[] output, int[] definitionLevels, int maxDefLevel) throws IOException {
         throw new UnsupportedOperationException("readInts not supported by this decoder");
+    }
+
+    /**
+     * Read float values directly into a primitive array.
+     *
+     * @param output the output array to populate
+     * @param definitionLevels definition levels indicating which positions have values (null for required columns)
+     * @param maxDefLevel the maximum definition level (value is present when defLevel == maxDefLevel)
+     */
+    default void readFloats(float[] output, int[] definitionLevels, int maxDefLevel) throws IOException {
+        throw new UnsupportedOperationException("readFloats not supported by this decoder");
+    }
+
+    /**
+     * Read boolean values directly into a primitive array.
+     *
+     * @param output the output array to populate
+     * @param definitionLevels definition levels indicating which positions have values (null for required columns)
+     * @param maxDefLevel the maximum definition level (value is present when defLevel == maxDefLevel)
+     */
+    default void readBooleans(boolean[] output, int[] definitionLevels, int maxDefLevel) throws IOException {
+        throw new UnsupportedOperationException("readBooleans not supported by this decoder");
+    }
+
+    /**
+     * Read byte array values directly into a byte[][] array.
+     *
+     * @param output the output array to populate
+     * @param definitionLevels definition levels indicating which positions have values (null for required columns)
+     * @param maxDefLevel the maximum definition level (value is present when defLevel == maxDefLevel)
+     */
+    default void readByteArrays(byte[][] output, int[] definitionLevels, int maxDefLevel) throws IOException {
+        throw new UnsupportedOperationException("readByteArrays not supported by this decoder");
     }
 }

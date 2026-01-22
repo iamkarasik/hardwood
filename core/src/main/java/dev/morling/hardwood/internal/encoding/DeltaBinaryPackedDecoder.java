@@ -10,8 +10,6 @@ package dev.morling.hardwood.internal.encoding;
 import java.io.IOException;
 import java.io.InputStream;
 
-import dev.morling.hardwood.metadata.PhysicalType;
-
 /**
  * Decoder for DELTA_BINARY_PACKED encoding.
  * <p>
@@ -32,7 +30,6 @@ import dev.morling.hardwood.metadata.PhysicalType;
 public class DeltaBinaryPackedDecoder implements ValueDecoder {
 
     private final InputStream input;
-    private final PhysicalType type;
 
     // Header values
     private int blockSize;
@@ -56,70 +53,24 @@ public class DeltaBinaryPackedDecoder implements ValueDecoder {
     private byte[] miniblockData;
     private int bitPosition;
 
-    public DeltaBinaryPackedDecoder(InputStream input, PhysicalType type) {
+    public DeltaBinaryPackedDecoder(InputStream input) {
         this.input = input;
-        this.type = type;
         this.headerRead = false;
         this.valuesRead = 0;
     }
 
     /**
-     * Read a single value from the stream.
+     * Read a single INT32 value from the stream.
      */
-    public Object readValue() throws IOException {
-        if (!headerRead) {
-            readHeader();
-            headerRead = true;
-        }
-
-        if (valuesRead == 0) {
-            valuesRead = 1;
-            return boxValue(firstValue);
-        }
-
-        if (valuesRead >= totalValueCount) {
-            throw new IOException("No more values to read");
-        }
-
-        // Check if we need to start a new block (first value after header doesn't count)
-        int valuesAfterFirst = valuesRead - 1;
-        if (valuesAfterFirst % blockSize == 0) {
-            readBlockHeader();
-        }
-
-        // Check if we need a new miniblock
-        if (valuesInCurrentMiniblock >= valuesPerMiniblock) {
-            currentMiniblock++;
-            valuesInCurrentMiniblock = 0;
-            if (currentMiniblock < miniblockCount) {
-                loadMiniblock();
-            }
-        }
-
-        // Unpack delta and reconstruct value
-        long packedDelta = unpackValue(bitWidths[currentMiniblock]);
-        long delta = minDelta + packedDelta;
-        lastValue += delta;
-        valuesInCurrentMiniblock++;
-        valuesRead++;
-
-        return boxValue(lastValue);
+    public int readInt() throws IOException {
+        return (int) readLongValue();
     }
 
-    @Override
-    public void readValues(Object[] output, int[] definitionLevels, int maxDefLevel) throws IOException {
-        if (definitionLevels == null) {
-            for (int i = 0; i < output.length; i++) {
-                output[i] = readValue();
-            }
-        }
-        else {
-            for (int i = 0; i < output.length; i++) {
-                if (definitionLevels[i] == maxDefLevel) {
-                    output[i] = readValue();
-                }
-            }
-        }
+    /**
+     * Read a single INT64 value from the stream.
+     */
+    public long readLong() throws IOException {
+        return readLongValue();
     }
 
     /**
@@ -201,14 +152,6 @@ public class DeltaBinaryPackedDecoder implements ValueDecoder {
         valuesRead++;
 
         return lastValue;
-    }
-
-    private Object boxValue(long value) {
-        // Must use explicit boxing to avoid type widening in ternary expression
-        if (type == PhysicalType.INT32) {
-            return Integer.valueOf((int) value);
-        }
-        return Long.valueOf(value);
     }
 
     private void readHeader() throws IOException {

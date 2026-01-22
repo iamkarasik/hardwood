@@ -9,6 +9,7 @@ package dev.morling.hardwood.internal.reader;
 
 import java.util.List;
 
+import dev.morling.hardwood.schema.ColumnSchema;
 import dev.morling.hardwood.schema.FieldPath;
 import dev.morling.hardwood.schema.FileSchema;
 
@@ -56,63 +57,60 @@ public class RecordAssembler {
     }
 
     /**
-     * Assemble the current record from all column batches.
-     * Each batch must have had {@link ColumnBatch#nextRecord()} called before this method.
+     * Assemble a row from prefetched column data at the given record index.
+     *
+     * @param prefetchedColumns list of prefetched data, one per column
+     * @param recordIndex       the record index within the prefetched batch
+     * @return the assembled row
      */
-    public MutableStruct assembleRow(List<ColumnBatch> batches) {
+    public MutableStruct assembleRow(List<TypedColumnData> prefetchedColumns, int recordIndex) {
         int rootSize = schema.getRootNode().children().size();
         MutableStruct record = new MutableStruct(rootSize);
 
-        for (ColumnBatch batch : batches) {
-            int colIndex = batch.getColumn().columnIndex();
-            processColumn(batch, schema.getFieldPaths().get(colIndex), record);
+        for (TypedColumnData columnData : prefetchedColumns) {
+            int colIndex = columnData.column().columnIndex();
+            processPrefetchedColumn(columnData, recordIndex, schema.getFieldPaths().get(colIndex), record);
         }
 
         return record;
     }
 
     /**
-     * Process a single column's current record, inserting values into the record.
+     * Process a single column's prefetched data for a specific record.
      */
-    private void processColumn(ColumnBatch batch, FieldPath path, MutableStruct record) {
-        int maxRepLevel = batch.getColumn().maxRepetitionLevel();
+    private void processPrefetchedColumn(TypedColumnData columnData, int recordIndex,
+                                          FieldPath path, MutableStruct record) {
+        ColumnSchema column = columnData.column();
+        int maxRepLevel = column.maxRepetitionLevel();
+
+        int startOffset = columnData.getStartOffset(recordIndex);
+        int valueCount = columnData.getValueCount(recordIndex);
+
+        if (valueCount == 0) {
+            return;
+        }
 
         // Fast path for flat columns (no repetition, single primitive step)
         if (maxRepLevel == 0 && path.steps().length == 1 && !path.steps()[0].isContainer()) {
-            processSimpleColumn(batch, path, record);
+            int d = columnData.getDefLevel(startOffset);
+            Object value = columnData.getValue(startOffset);
+            if (d == path.maxDefLevel()) {
+                record.setChild(path.leafFieldIndex(), value);
+            }
             return;
         }
 
         // General path for nested/repeated columns
         int[] indices = new int[maxRepLevel + 1];
 
-        while (batch.hasValue()) {
-            int r = batch.repetitionLevel();
-            int d = batch.definitionLevel();
-            Object value = batch.value();
-            batch.advance();
+        for (int i = 0; i < valueCount; i++) {
+            int offset = startOffset + i;
+            int r = columnData.getRepLevel(offset);
+            int d = columnData.getDefLevel(offset);
+            Object value = columnData.getValue(offset);
 
             updateIndices(indices, r);
             insertAtPath(record, path, indices, d, value);
-        }
-    }
-
-    /**
-     * Optimized path for flat columns: direct struct field assignment.
-     * Used when maxRepLevel == 0 and there are no intermediate path steps.
-     * For flat columns, there's exactly one value per record (either present or null).
-     */
-    private void processSimpleColumn(ColumnBatch batch, FieldPath path, MutableStruct record) {
-        if (!batch.hasValue()) {
-            return;
-        }
-
-        int d = batch.definitionLevel();
-        Object value = batch.value();
-        batch.advance();
-
-        if (d == path.maxDefLevel()) {
-            record.setChild(path.leafFieldIndex(), value);
         }
     }
 

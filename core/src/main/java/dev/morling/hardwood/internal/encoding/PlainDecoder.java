@@ -35,27 +35,6 @@ public class PlainDecoder implements ValueDecoder {
     }
 
     /**
-     * Read a single value from the stream.
-     */
-    public Object readValue() throws IOException {
-        return switch (type) {
-            case BOOLEAN -> readBoolean();
-            case INT32 -> readInt32();
-            case INT64 -> readInt64();
-            case INT96 -> readInt96();
-            case FLOAT -> readFloat();
-            case DOUBLE -> readDouble();
-            case BYTE_ARRAY -> readByteArray();
-            case FIXED_LEN_BYTE_ARRAY -> {
-                if (typeLength == null) {
-                    throw new IOException("FIXED_LEN_BYTE_ARRAY requires type_length in schema");
-                }
-                yield readFixedLenByteArray(typeLength);
-            }
-        };
-    }
-
-    /**
      * Read a fixed-length byte array value.
      */
     public byte[] readFixedLenByteArray(int length) throws IOException {
@@ -65,33 +44,6 @@ public class PlainDecoder implements ValueDecoder {
             throw new IOException("Unexpected EOF while reading fixed-length byte array");
         }
         return bytes;
-    }
-
-    /**
-     * Read multiple values into a buffer.
-     */
-    public void readValues(Object[] buffer, int offset, int count) throws IOException {
-        for (int i = 0; i < count; i++) {
-            buffer[offset + i] = readValue();
-        }
-    }
-
-    @Override
-    public void readValues(Object[] output, int[] definitionLevels, int maxDefLevel) throws IOException {
-        if (definitionLevels == null) {
-            // Required column - all positions have values
-            for (int i = 0; i < output.length; i++) {
-                output[i] = readValue();
-            }
-        }
-        else {
-            // Optional column - only read where definition level indicates a value
-            for (int i = 0; i < output.length; i++) {
-                if (definitionLevels[i] == maxDefLevel) {
-                    output[i] = readValue();
-                }
-            }
-        }
     }
 
     /**
@@ -149,6 +101,80 @@ public class PlainDecoder implements ValueDecoder {
                 }
             }
         }
+    }
+
+    /**
+     * Read FLOAT values directly into a primitive float array.
+     */
+    @Override
+    public void readFloats(float[] output, int[] definitionLevels, int maxDefLevel) throws IOException {
+        if (definitionLevels == null) {
+            for (int i = 0; i < output.length; i++) {
+                output[i] = readFloat();
+            }
+        }
+        else {
+            for (int i = 0; i < output.length; i++) {
+                if (definitionLevels[i] == maxDefLevel) {
+                    output[i] = readFloat();
+                }
+            }
+        }
+    }
+
+    /**
+     * Read BOOLEAN values directly into a primitive boolean array.
+     */
+    @Override
+    public void readBooleans(boolean[] output, int[] definitionLevels, int maxDefLevel) throws IOException {
+        if (definitionLevels == null) {
+            for (int i = 0; i < output.length; i++) {
+                output[i] = readBoolean();
+            }
+        }
+        else {
+            for (int i = 0; i < output.length; i++) {
+                if (definitionLevels[i] == maxDefLevel) {
+                    output[i] = readBoolean();
+                }
+            }
+        }
+    }
+
+    /**
+     * Read BYTE_ARRAY, FIXED_LEN_BYTE_ARRAY, or INT96 values directly into a byte[][] array.
+     */
+    @Override
+    public void readByteArrays(byte[][] output, int[] definitionLevels, int maxDefLevel) throws IOException {
+        if (definitionLevels == null) {
+            for (int i = 0; i < output.length; i++) {
+                output[i] = readByteArrayValue();
+            }
+        }
+        else {
+            for (int i = 0; i < output.length; i++) {
+                if (definitionLevels[i] == maxDefLevel) {
+                    output[i] = readByteArrayValue();
+                }
+            }
+        }
+    }
+
+    /**
+     * Read a single byte array value based on the physical type.
+     */
+    private byte[] readByteArrayValue() throws IOException {
+        return switch (type) {
+            case BYTE_ARRAY -> readByteArray();
+            case FIXED_LEN_BYTE_ARRAY -> {
+                if (typeLength == null) {
+                    throw new IOException("FIXED_LEN_BYTE_ARRAY requires type_length in schema");
+                }
+                yield readFixedLenByteArray(typeLength);
+            }
+            case INT96 -> readInt96();
+            default -> throw new IOException("readByteArrays not supported for type: " + type);
+        };
     }
 
     private boolean readBoolean() throws IOException {

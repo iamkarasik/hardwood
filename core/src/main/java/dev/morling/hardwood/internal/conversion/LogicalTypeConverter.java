@@ -49,14 +49,14 @@ public class LogicalTypeConverter {
         };
     }
 
-    private static String convertToString(Object value, PhysicalType physicalType) {
+    public static String convertToString(Object value, PhysicalType physicalType) {
         if (physicalType != PhysicalType.BYTE_ARRAY) {
             throw new IllegalArgumentException("STRING logical type requires BYTE_ARRAY physical type, got " + physicalType);
         }
         return new String((byte[]) value, StandardCharsets.UTF_8);
     }
 
-    private static LocalDate convertToDate(Object value, PhysicalType physicalType) {
+    public static LocalDate convertToDate(Object value, PhysicalType physicalType) {
         if (physicalType != PhysicalType.INT32) {
             throw new IllegalArgumentException("DATE logical type requires INT32 physical type, got " + physicalType);
         }
@@ -65,8 +65,8 @@ public class LogicalTypeConverter {
         return LocalDate.ofEpochDay(daysSinceEpoch);
     }
 
-    private static Instant convertToTimestamp(Object value, PhysicalType physicalType,
-                                              LogicalType.TimestampType timestampType) {
+    public static Instant convertToTimestamp(Object value, PhysicalType physicalType,
+                                             LogicalType.TimestampType timestampType) {
         if (physicalType != PhysicalType.INT64) {
             throw new IllegalArgumentException("TIMESTAMP logical type requires INT64 physical type, got " + physicalType);
         }
@@ -79,8 +79,8 @@ public class LogicalTypeConverter {
         };
     }
 
-    private static LocalTime convertToTime(Object value, PhysicalType physicalType,
-                                           LogicalType.TimeType timeType) {
+    public static LocalTime convertToTime(Object value, PhysicalType physicalType,
+                                          LogicalType.TimeType timeType) {
         if (physicalType != PhysicalType.INT32 && physicalType != PhysicalType.INT64) {
             throw new IllegalArgumentException(
                     "TIME logical type requires INT32 or INT64 physical type, got " + physicalType);
@@ -95,8 +95,8 @@ public class LogicalTypeConverter {
         };
     }
 
-    private static BigDecimal convertToDecimal(Object value, PhysicalType physicalType,
-            LogicalType.DecimalType decimalType) {
+    public static BigDecimal convertToDecimal(Object value, PhysicalType physicalType,
+                                              LogicalType.DecimalType decimalType) {
         BigInteger unscaled = switch (physicalType) {
             case INT32 -> BigInteger.valueOf((Integer) value);
             case INT64 -> BigInteger.valueOf((Long) value);
@@ -112,8 +112,8 @@ public class LogicalTypeConverter {
         return new BigDecimal(unscaled, decimalType.scale());
     }
 
-    private static Object convertToInt(Object value, PhysicalType physicalType,
-                                       LogicalType.IntType intType) {
+    public static Object convertToInt(Object value, PhysicalType physicalType,
+                                      LogicalType.IntType intType) {
         if (physicalType != PhysicalType.INT32 && physicalType != PhysicalType.INT64) {
             throw new IllegalArgumentException("INT logical type requires INT32 or INT64 physical type, got " + physicalType);
         }
@@ -133,7 +133,7 @@ public class LogicalTypeConverter {
         return value;
     }
 
-    private static UUID convertToUuid(Object value, PhysicalType physicalType) {
+    public static UUID convertToUuid(Object value, PhysicalType physicalType) {
         if (physicalType != PhysicalType.FIXED_LEN_BYTE_ARRAY) {
             throw new IllegalArgumentException("UUID logical type requires FIXED_LEN_BYTE_ARRAY physical type, got " + physicalType);
         }
