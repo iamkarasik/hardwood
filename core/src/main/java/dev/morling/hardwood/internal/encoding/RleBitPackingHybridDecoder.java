@@ -9,243 +9,302 @@ package dev.morling.hardwood.internal.encoding;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Arrays;
 
 /**
  * Decoder for RLE/Bit-Packing Hybrid encoding.
- * Used primarily for definition and repetition levels.
+ * Used primarily for definition/repetition levels and dictionary indices.
  */
 public class RleBitPackingHybridDecoder {
 
-    private final InputStream input;
+    private final byte[] data;
     private final int bitWidth;
+    private final int bitMask;
+    private int pos;
 
-    // Current run state
-    private int currentValue = 0;
-    private int remainingInRun = 0;
-    private boolean isRleRun = false;
+    // Run state
+    private int currentValue;
+    private int remainingInRun;
+    private boolean isRleRun;
 
-    // Bit-packed state
-    private long bitPackedBuffer = 0;
-    private int bitsInBuffer = 0;
+    // Bit buffer for packed values
+    private long bitBuffer;
+    private int bitsInBuffer;
 
-    public RleBitPackingHybridDecoder(InputStream input, int bitWidth) {
-        this.input = input;
+    public RleBitPackingHybridDecoder(InputStream input, int bitWidth) throws IOException {
+        this(input.readAllBytes(), bitWidth);
+    }
+
+    public RleBitPackingHybridDecoder(byte[] data, int bitWidth) {
+        this.data = data;
         this.bitWidth = bitWidth;
+        this.bitMask = (bitWidth == 0) ? 0 : (1 << bitWidth) - 1;
     }
 
-    /**
-     * Read the next level value.
-     */
-    public int readInt() throws IOException {
-        if (bitWidth == 0) {
-            // All values are 0
-            return 0;
+    public void readInts(int[] buffer, int offset, int count) {
+        if (bitWidth == 0 || data.length == 0) {
+            return;
         }
 
-        if (remainingInRun == 0) {
-            readNextRun();
-        }
+        int outPos = offset;
+        int remaining = count;
 
-        remainingInRun--;
+        while (remaining > 0) {
+            if (remainingInRun == 0) {
+                readNextRun();
+                if (remainingInRun == 0) {
+                    break;
+                }
+            }
 
-        if (isRleRun) {
-            return currentValue;
-        }
-        else {
-            return readBitPackedValue();
+            int toRead = Math.min(remaining, remainingInRun);
+
+            if (isRleRun) {
+                Arrays.fill(buffer, outPos, outPos + toRead, currentValue);
+            }
+            else {
+                decodeBitPacked(buffer, outPos, toRead);
+            }
+
+            outPos += toRead;
+            remainingInRun -= toRead;
+            remaining -= toRead;
         }
     }
 
-    /**
-     * Read multiple values into a buffer.
-     */
-    public void readInts(int[] buffer, int offset, int count) throws IOException {
-        for (int i = 0; i < count; i++) {
-            buffer[offset + i] = readInt();
-        }
+    // Type-specific dictionary lookups to avoid boxing
+
+    public void readDictionaryLongs(long[] output, long[] dictionary, int[] defLevels, int maxDef) {
+        int[] indices = decodeIndices(output.length, defLevels, maxDef);
+        applyDictionary(output, dictionary, indices, defLevels, maxDef);
     }
 
-    /**
-     * Read boolean values directly into a primitive boolean array.
-     * Used for RLE-encoded boolean columns.
-     */
-    public void readBooleans(boolean[] output, int[] definitionLevels, int maxDefLevel) throws IOException {
-        if (definitionLevels == null) {
+    public void readDictionaryDoubles(double[] output, double[] dictionary, int[] defLevels, int maxDef) {
+        int[] indices = decodeIndices(output.length, defLevels, maxDef);
+        applyDictionary(output, dictionary, indices, defLevels, maxDef);
+    }
+
+    public void readDictionaryInts(int[] output, int[] dictionary, int[] defLevels, int maxDef) {
+        int[] indices = decodeIndices(output.length, defLevels, maxDef);
+        applyDictionary(output, dictionary, indices, defLevels, maxDef);
+    }
+
+    public void readDictionaryFloats(float[] output, float[] dictionary, int[] defLevels, int maxDef) {
+        int[] indices = decodeIndices(output.length, defLevels, maxDef);
+        applyDictionary(output, dictionary, indices, defLevels, maxDef);
+    }
+
+    public void readDictionaryByteArrays(byte[][] output, byte[][] dictionary, int[] defLevels, int maxDef) {
+        int[] indices = decodeIndices(output.length, defLevels, maxDef);
+        applyDictionary(output, dictionary, indices, defLevels, maxDef);
+    }
+
+    public void readBooleans(boolean[] output, int[] defLevels, int maxDef) {
+        int[] indices = decodeIndices(output.length, defLevels, maxDef);
+        if (defLevels == null) {
             for (int i = 0; i < output.length; i++) {
-                output[i] = readInt() != 0;
+                output[i] = indices[i] != 0;
             }
         }
         else {
+            int idx = 0;
             for (int i = 0; i < output.length; i++) {
-                if (definitionLevels[i] == maxDefLevel) {
-                    output[i] = readInt() != 0;
+                if (defLevels[i] == maxDef) {
+                    output[i] = indices[idx++] != 0;
                 }
             }
         }
     }
 
-    /**
-     * Read dictionary indices and look up long values directly into a primitive array.
-     */
-    public void readDictionaryLongs(long[] output, long[] dictionary, int[] definitionLevels, int maxDefLevel)
-            throws IOException {
-        if (definitionLevels == null) {
+    private int[] decodeIndices(int len, int[] defLevels, int maxDef) {
+        if (defLevels == null) {
+            int[] indices = new int[len];
+            readInts(indices, 0, len);
+            return indices;
+        }
+        int nonNullCount = countNonNulls(defLevels, maxDef);
+        int[] indices = new int[nonNullCount];
+        readInts(indices, 0, nonNullCount);
+        return indices;
+    }
+
+    private void applyDictionary(long[] output, long[] dict, int[] indices, int[] defLevels, int maxDef) {
+        if (defLevels == null) {
             for (int i = 0; i < output.length; i++) {
-                output[i] = dictionary[readInt()];
+                output[i] = dict[indices[i]];
             }
         }
         else {
+            int idx = 0;
             for (int i = 0; i < output.length; i++) {
-                if (definitionLevels[i] == maxDefLevel) {
-                    output[i] = dictionary[readInt()];
+                if (defLevels[i] == maxDef) {
+                    output[i] = dict[indices[idx++]];
                 }
             }
         }
     }
 
-    /**
-     * Read dictionary indices and look up double values directly into a primitive array.
-     */
-    public void readDictionaryDoubles(double[] output, double[] dictionary, int[] definitionLevels, int maxDefLevel)
-            throws IOException {
-        if (definitionLevels == null) {
+    private void applyDictionary(double[] output, double[] dict, int[] indices, int[] defLevels, int maxDef) {
+        if (defLevels == null) {
             for (int i = 0; i < output.length; i++) {
-                output[i] = dictionary[readInt()];
+                output[i] = dict[indices[i]];
             }
         }
         else {
+            int idx = 0;
             for (int i = 0; i < output.length; i++) {
-                if (definitionLevels[i] == maxDefLevel) {
-                    output[i] = dictionary[readInt()];
+                if (defLevels[i] == maxDef) {
+                    output[i] = dict[indices[idx++]];
                 }
             }
         }
     }
 
-    /**
-     * Read dictionary indices and look up int values directly into a primitive array.
-     */
-    public void readDictionaryInts(int[] output, int[] dictionary, int[] definitionLevels, int maxDefLevel)
-            throws IOException {
-        if (definitionLevels == null) {
+    private void applyDictionary(int[] output, int[] dict, int[] indices, int[] defLevels, int maxDef) {
+        if (defLevels == null) {
             for (int i = 0; i < output.length; i++) {
-                output[i] = dictionary[readInt()];
+                output[i] = dict[indices[i]];
             }
         }
         else {
+            int idx = 0;
             for (int i = 0; i < output.length; i++) {
-                if (definitionLevels[i] == maxDefLevel) {
-                    output[i] = dictionary[readInt()];
+                if (defLevels[i] == maxDef) {
+                    output[i] = dict[indices[idx++]];
                 }
             }
         }
     }
 
-    /**
-     * Read dictionary indices and look up float values directly into a primitive array.
-     */
-    public void readDictionaryFloats(float[] output, float[] dictionary, int[] definitionLevels, int maxDefLevel)
-            throws IOException {
-        if (definitionLevels == null) {
+    private void applyDictionary(float[] output, float[] dict, int[] indices, int[] defLevels, int maxDef) {
+        if (defLevels == null) {
             for (int i = 0; i < output.length; i++) {
-                output[i] = dictionary[readInt()];
+                output[i] = dict[indices[i]];
             }
         }
         else {
+            int idx = 0;
             for (int i = 0; i < output.length; i++) {
-                if (definitionLevels[i] == maxDefLevel) {
-                    output[i] = dictionary[readInt()];
+                if (defLevels[i] == maxDef) {
+                    output[i] = dict[indices[idx++]];
                 }
             }
         }
     }
 
-    /**
-     * Read dictionary indices and look up byte array values directly into a byte[][] array.
-     */
-    public void readDictionaryByteArrays(byte[][] output, byte[][] dictionary, int[] definitionLevels, int maxDefLevel)
-            throws IOException {
-        if (definitionLevels == null) {
+    private void applyDictionary(byte[][] output, byte[][] dict, int[] indices, int[] defLevels, int maxDef) {
+        if (defLevels == null) {
             for (int i = 0; i < output.length; i++) {
-                output[i] = dictionary[readInt()];
+                output[i] = dict[indices[i]];
             }
         }
         else {
+            int idx = 0;
             for (int i = 0; i < output.length; i++) {
-                if (definitionLevels[i] == maxDefLevel) {
-                    output[i] = dictionary[readInt()];
+                if (defLevels[i] == maxDef) {
+                    output[i] = dict[indices[idx++]];
                 }
             }
         }
     }
 
-    private void readNextRun() throws IOException {
-        // Read header varint
+    private static int countNonNulls(int[] defLevels, int maxDef) {
+        int count = 0;
+        for (int level : defLevels) {
+            if (level == maxDef) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private void readNextRun() {
+        if (pos >= data.length) {
+            remainingInRun = 0;
+            return;
+        }
+
         long header = readUnsignedVarInt();
 
         if ((header & 1) == 1) {
-            // Bit-packed run: header >> 1 gives number of groups of 8 values
-            // Note: LSB=1 means bit-packed (header = <count> << 1 | 1)
-            int numGroups = (int) (header >> 1);
-            remainingInRun = numGroups * 8;
+            // Bit-packed: header >> 1 = number of 8-value groups
+            remainingInRun = (int) (header >> 1) * 8;
             isRleRun = false;
         }
         else {
-            // RLE run: header >> 1 gives count, followed by value
-            // Note: LSB=0 means RLE (header = <count> << 1)
+            // RLE: header >> 1 = repeat count
             remainingInRun = (int) (header >> 1);
             currentValue = readRleValue();
             isRleRun = true;
         }
     }
 
-    /**
-     * Read RLE value - uses byte-aligned reading, taking minimum bytes needed for bit width.
-     */
-    private int readRleValue() throws IOException {
+    private int readRleValue() {
         int bytesNeeded = (bitWidth + 7) / 8;
         int value = 0;
+        for (int i = 0; i < bytesNeeded && pos < data.length; i++) {
+            value |= (data[pos++] & 0xFF) << (i * 8);
+        }
+        return value & bitMask;
+    }
 
-        for (int i = 0; i < bytesNeeded; i++) {
-            int b = input.read();
-            if (b == -1) {
-                throw new IOException("Unexpected EOF while reading RLE value");
-            }
-            value |= (b & 0xFF) << (i * 8);
+    /**
+     * Batch decode bit-packed values. For widths 1-8, processes 8 values at a time.
+     */
+    private void decodeBitPacked(int[] output, int outPos, int count) {
+        final int width = bitWidth;
+        final int mask = bitMask;
+
+        // Drain leftover bits first
+        while (bitsInBuffer >= width && count > 0) {
+            output[outPos++] = (int) (bitBuffer & mask);
+            bitBuffer >>>= width;
+            bitsInBuffer -= width;
+            count--;
         }
 
-        // Mask to bit width
-        return value & ((1 << bitWidth) - 1);
-    }
-
-    private int readBitPackedValue() throws IOException {
-        return readBits(bitWidth);
-    }
-
-    private int readBits(int numBits) throws IOException {
-        while (bitsInBuffer < numBits) {
-            int b = input.read();
-            if (b == -1) {
-                throw new IOException("Unexpected EOF while reading bits");
+        // For widths <= 8: 8 values fit in width bytes (8 * width bits = width bytes)
+        // For widths > 8: process one value at a time
+        if (width <= 8) {
+            while (count >= 8 && pos + width <= data.length) {
+                long bits = 0;
+                for (int i = 0; i < width; i++) {
+                    bits |= ((long) (data[pos++] & 0xFF)) << (i * 8);
+                }
+                output[outPos]     = (int) (bits & mask); bits >>>= width;
+                output[outPos + 1] = (int) (bits & mask); bits >>>= width;
+                output[outPos + 2] = (int) (bits & mask); bits >>>= width;
+                output[outPos + 3] = (int) (bits & mask); bits >>>= width;
+                output[outPos + 4] = (int) (bits & mask); bits >>>= width;
+                output[outPos + 5] = (int) (bits & mask); bits >>>= width;
+                output[outPos + 6] = (int) (bits & mask); bits >>>= width;
+                output[outPos + 7] = (int) (bits & mask);
+                outPos += 8;
+                count -= 8;
             }
-            bitPackedBuffer |= ((long) b & 0xFF) << bitsInBuffer;
-            bitsInBuffer += 8;
         }
 
-        int value = (int) (bitPackedBuffer & ((1L << numBits) - 1));
-        bitPackedBuffer >>>= numBits;
-        bitsInBuffer -= numBits;
-        return value;
+        // Handle remaining values
+        while (count > 0) {
+            while (bitsInBuffer < width && pos < data.length) {
+                bitBuffer |= ((long) (data[pos++] & 0xFF)) << bitsInBuffer;
+                bitsInBuffer += 8;
+            }
+            if (bitsInBuffer < width) {
+                break;
+            }
+            output[outPos++] = (int) (bitBuffer & mask);
+            bitBuffer >>>= width;
+            bitsInBuffer -= width;
+            count--;
+        }
     }
 
-    private long readUnsignedVarInt() throws IOException {
+    private long readUnsignedVarInt() {
         long result = 0;
         int shift = 0;
-        while (true) {
-            int b = input.read();
-            if (b == -1) {
-                throw new IOException("Unexpected EOF while reading varint");
-            }
+        while (pos < data.length) {
+            int b = data[pos++] & 0xFF;
             result |= (long) (b & 0x7F) << shift;
             if ((b & 0x80) == 0) {
                 break;

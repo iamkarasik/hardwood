@@ -385,6 +385,21 @@ Hardwood             |      18.73 |        43,991,423 |    303,521,540.36 |    8
   Hardwood                     2.94      15,118,310            944,894        245.5
 ```
 
+```
+=== Performance Test Results (2026-01-22, prefetching) ===
+  Contender                Time (s)     Records/sec   Records/sec/core       MB/sec
+  -------------------------------------------------------------------------------------
+  Hardwood                     2.57      17,310,053          1,081,878        281.1
+```
+
+```
+=== Performance Test Results (2026-01-22, RLE decoder tweaks) ===
+Performance:
+  Contender                Time (s)     Records/sec   Records/sec/core       MB/sec
+  -------------------------------------------------------------------------------------
+  Hardwood                     2.24      19,793,938          1,237,121        321.4
+```
+
 ## Implementation Status & Roadmap
 
 A from-scratch implementation of Apache Parquet reader/writer in Java with no dependencies except compression libraries.
