@@ -84,6 +84,10 @@ public class RowReader implements Iterable<PqRow>, AutoCloseable {
         private int prefetchedRecordCount;
         private int currentRecordIndex;
 
+        // Double-buffering: prefetch next batch while consuming current
+        private Future<List<TypedColumnData>> nextBatchFuture;
+        private List<ColumnValueIterator> nextColumnIterators;
+
         @Override
         public boolean hasNext() {
             if (closed) {
@@ -118,6 +122,15 @@ public class RowReader implements Iterable<PqRow>, AutoCloseable {
 
         private boolean prefetchBatch() {
             while (true) {
+                // Check if we have a pre-fetched batch ready (double-buffering)
+                if (nextBatchFuture != null) {
+                    if (awaitAndActivateNextBatch()) {
+                        return true;
+                    }
+                    // Batch was empty, continue to try next row group
+                }
+
+                // No pending prefetch - need to start fresh
                 if (columnIterators != null) {
                     if (prefetchFromCurrentIterators()) {
                         return true;
@@ -128,6 +141,37 @@ public class RowReader implements Iterable<PqRow>, AutoCloseable {
                     return false;
                 }
                 columnIterators = createColumnIterators(rowGroupIterator.next());
+            }
+        }
+
+        /**
+         * Wait for the pre-fetched batch and activate it, then kick off next prefetch.
+         */
+        private boolean awaitAndActivateNextBatch() {
+            try {
+                prefetchedColumns = nextBatchFuture.get();
+                columnIterators = nextColumnIterators;
+                nextBatchFuture = null;
+                nextColumnIterators = null;
+
+                prefetchedRecordCount = prefetchedColumns.isEmpty() ? 0 : prefetchedColumns.get(0).recordCount();
+                currentRecordIndex = 0;
+
+                if (prefetchedRecordCount == 0) {
+                    columnIterators = null;
+                    return false;
+                }
+
+                // Kick off next prefetch immediately (double-buffering)
+                kickoffNextPrefetch();
+                return true;
+            }
+            catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException("Interrupted while prefetching", e);
+            }
+            catch (ExecutionException e) {
+                throw new RuntimeException("Failed to prefetch column data", e.getCause());
             }
         }
 
@@ -152,7 +196,56 @@ public class RowReader implements Iterable<PqRow>, AutoCloseable {
                     return false;
                 }
 
+                // Kick off next prefetch immediately (double-buffering)
+                kickoffNextPrefetch();
                 return true;
+            }
+            catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException("Interrupted while prefetching", e);
+            }
+            catch (ExecutionException e) {
+                throw new RuntimeException("Failed to prefetch column data", e.getCause());
+            }
+        }
+
+        /**
+         * Start prefetching the next batch in the background.
+         * This enables double-buffering: while the consumer processes the current batch,
+         * we're already loading the next one.
+         */
+        private void kickoffNextPrefetch() {
+            // First, try to continue with current column iterators (same row group)
+            if (columnIterators != null) {
+                nextColumnIterators = columnIterators;
+                nextBatchFuture = EXECUTOR.submit(() -> prefetchColumns(nextColumnIterators));
+                return;
+            }
+
+            // Current row group exhausted, try next row group
+            if (rowGroupIterator.hasNext()) {
+                nextColumnIterators = createColumnIterators(rowGroupIterator.next());
+                nextBatchFuture = EXECUTOR.submit(() -> prefetchColumns(nextColumnIterators));
+            }
+        }
+
+        /**
+         * Prefetch all columns in parallel and return the combined result.
+         * This method is called from a background thread.
+         */
+        private List<TypedColumnData> prefetchColumns(List<ColumnValueIterator> iterators) {
+            List<Future<TypedColumnData>> futures = new ArrayList<>();
+
+            for (ColumnValueIterator iter : iterators) {
+                futures.add(EXECUTOR.submit(() -> iter.prefetch(PREFETCH_BATCH_SIZE)));
+            }
+
+            try {
+                List<TypedColumnData> result = new ArrayList<>();
+                for (Future<TypedColumnData> future : futures) {
+                    result.add(future.get());
+                }
+                return result;
             }
             catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
