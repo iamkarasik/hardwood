@@ -36,6 +36,7 @@ public class PageCursor {
     private final List<PageInfo> pageInfos;
     private final Executor executor;
     private final String columnName;
+    private final PageReader pageReader;
     private int nextPageIndex = 0;
 
     // Adaptive prefetch queue
@@ -47,7 +48,15 @@ public class PageCursor {
     public PageCursor(List<PageInfo> pageInfos, Executor executor) {
         this.pageInfos = pageInfos;
         this.executor = executor;
-        this.columnName = pageInfos.isEmpty() ? "unknown" : pageInfos.get(0).columnSchema().name();
+        if (pageInfos.isEmpty()) {
+            this.columnName = "unknown";
+            this.pageReader = null;
+        }
+        else {
+            PageInfo first = pageInfos.get(0);
+            this.columnName = first.columnSchema().name();
+            this.pageReader = new PageReader(first.columnMetaData(), first.columnSchema(), first.dictionary());
+        }
         // Start prefetching immediately
         fillPrefetchQueue();
     }
@@ -122,12 +131,7 @@ public class PageCursor {
      */
     private Page decodePage(PageInfo pageInfo) {
         try {
-            return PageReader.decodeSinglePage(
-                pageInfo.pageData(),
-                pageInfo.columnMetaData(),
-                pageInfo.columnSchema(),
-                pageInfo.dictionary()
-            );
+            return pageReader.decodePage(pageInfo.pageData());
         }
         catch (Exception e) {
             throw new RuntimeException("Error decoding page for column " + pageInfo.columnSchema().name(), e);

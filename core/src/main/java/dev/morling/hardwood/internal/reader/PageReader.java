@@ -34,7 +34,7 @@ import dev.morling.hardwood.schema.ColumnSchema;
 /**
  * Decoder for individual Parquet data pages.
  * <p>
- * This class provides stateless page decoding via {@link #decodeSinglePage}.
+ * This class provides page decoding via {@link #decodePage}.
  * Page scanning and dictionary parsing are handled by {@link PageScanner}.
  * </p>
  */
@@ -45,9 +45,13 @@ public class PageReader {
     private final Dictionary dictionary;
 
     /**
-     * Constructor for single-page decoding with a pre-parsed dictionary.
+     * Constructor for page decoding with a pre-parsed dictionary.
+     *
+     * @param columnMetaData metadata for the column
+     * @param column column schema
+     * @param dictionary pre-parsed dictionary, or null if not dictionary-encoded
      */
-    private PageReader(ColumnMetaData columnMetaData, ColumnSchema column, Dictionary dictionary) {
+    public PageReader(ColumnMetaData columnMetaData, ColumnSchema column, Dictionary dictionary) {
         this.columnMetaData = columnMetaData;
         this.column = column;
         this.dictionary = dictionary;
@@ -57,17 +61,12 @@ public class PageReader {
      * Decode a single data page from a buffer.
      * <p>
      * The buffer should contain the complete page including header.
-     * This method is stateless and thread-safe.
      * </p>
      *
      * @param pageBuffer buffer containing just this page (header + data)
-     * @param columnMetaData metadata for the column
-     * @param column column schema
-     * @param dictionary pre-parsed dictionary, or null if not dictionary-encoded
      * @return decoded page
      */
-    public static Page decodeSinglePage(ByteBuffer pageBuffer, ColumnMetaData columnMetaData,
-                                        ColumnSchema column, Dictionary dictionary) throws IOException {
+    public Page decodePage(ByteBuffer pageBuffer) throws IOException {
         // Parse page header
         ByteBufferInputStream headerStream = new ByteBufferInputStream(pageBuffer, 0);
         ThriftCompactReader headerReader = new ThriftCompactReader(headerStream);
@@ -79,17 +78,14 @@ public class PageReader {
         byte[] pageData = new byte[compressedSize];
         pageBuffer.slice(headerSize, compressedSize).get(pageData);
 
-        // Create a temporary PageReader instance for parsing
-        PageReader reader = new PageReader(columnMetaData, column, dictionary);
-
         return switch (pageHeader.type()) {
             case DATA_PAGE -> {
                 Decompressor decompressor = DecompressorFactory.getDecompressor(columnMetaData.codec());
                 byte[] uncompressedData = decompressor.decompress(pageData, pageHeader.uncompressedPageSize());
-                yield reader.parseDataPage(pageHeader.dataPageHeader(), uncompressedData);
+                yield parseDataPage(pageHeader.dataPageHeader(), uncompressedData);
             }
             case DATA_PAGE_V2 -> {
-                yield reader.parseDataPageV2(pageHeader.dataPageHeaderV2(), pageData, pageHeader.uncompressedPageSize());
+                yield parseDataPageV2(pageHeader.dataPageHeaderV2(), pageData, pageHeader.uncompressedPageSize());
             }
             default -> throw new IOException("Unexpected page type for single-page decode: " + pageHeader.type());
         };
