@@ -63,51 +63,66 @@ abstract class AbstractRowReader implements RowReader {
         }
         initialized = true;
 
-        try {
-            LOG.log(System.Logger.Level.DEBUG, "Starting to parse file ''{0}'' with {1} row groups, {2} columns",
-                    fileName, rowGroups.size(), schema.getColumnCount());
+        LOG.log(System.Logger.Level.DEBUG, "Starting to parse file ''{0}'' with {1} row groups, {2} columns",
+                fileName, rowGroups.size(), schema.getColumnCount());
 
-            int columnCount = schema.getColumnCount();
+        int columnCount = schema.getColumnCount();
 
-            // Collect page infos for each column across all row groups
-            List<List<PageInfo>> pageInfosByColumn = new ArrayList<>(columnCount);
-            for (int i = 0; i < columnCount; i++) {
-                pageInfosByColumn.add(new ArrayList<>());
-            }
+        // Collect page infos for each column across all row groups
+        List<List<PageInfo>> pageInfosByColumn = new ArrayList<>(columnCount);
+        for (int i = 0; i < columnCount; i++) {
+            pageInfosByColumn.add(new ArrayList<>());
+        }
 
-            LOG.log(System.Logger.Level.DEBUG, "Scanning pages for {0} columns across {1} row groups",
-                    columnCount, rowGroups.size());
+        LOG.log(System.Logger.Level.DEBUG, "Scanning pages for {0} columns across {1} row groups",
+                columnCount, rowGroups.size());
 
-            for (RowGroup rowGroup : rowGroups) {
-                for (int colIndex = 0; colIndex < columnCount; colIndex++) {
-                    ColumnSchema columnSchema = schema.getColumn(colIndex);
-                    ColumnChunk columnChunk = rowGroup.columns().get(colIndex);
+        // Scan each column in parallel
+        @SuppressWarnings("unchecked")
+        CompletableFuture<List<PageInfo>>[] scanFutures = new CompletableFuture[columnCount];
 
+        for (int colIndex = 0; colIndex < columnCount; colIndex++) {
+            final int col = colIndex;
+            final ColumnSchema columnSchema = schema.getColumn(col);
+
+            scanFutures[col] = CompletableFuture.supplyAsync(() -> {
+                List<PageInfo> columnPages = new ArrayList<>();
+                for (RowGroup rowGroup : rowGroups) {
+                    ColumnChunk columnChunk = rowGroup.columns().get(col);
                     PageScanner scanner = new PageScanner(channel, columnSchema, columnChunk);
-                    List<PageInfo> pageInfos = scanner.scanPages();
-                    pageInfosByColumn.get(colIndex).addAll(pageInfos);
+                    try {
+                        columnPages.addAll(scanner.scanPages());
+                    }
+                    catch (IOException e) {
+                        throw new UncheckedIOException("Failed to scan pages for column " + columnSchema.name(), e);
+                    }
                 }
-            }
-
-            int totalPages = pageInfosByColumn.stream().mapToInt(List::size).sum();
-            LOG.log(System.Logger.Level.DEBUG, "Page scanning complete: {0} total pages across {1} columns",
-                    totalPages, columnCount);
-
-            // Create iterators for each column
-            iterators = new ColumnValueIterator[columnCount];
-            for (int i = 0; i < columnCount; i++) {
-                PageCursor pageCursor = new PageCursor(pageInfosByColumn.get(i), executor);
-                iterators[i] = new ColumnValueIterator(pageCursor, schema.getColumn(i), executor);
-            }
-
-            onInitialize();
-
-            // Eagerly load first batch
-            loadNextBatch();
+                return columnPages;
+            }, executor);
         }
-        catch (IOException e) {
-            throw new UncheckedIOException("Failed to initialize page scanner", e);
+
+        // Wait for all scans to complete and collect results
+        CompletableFuture.allOf(scanFutures).join();
+
+        for (int colIndex = 0; colIndex < columnCount; colIndex++) {
+            pageInfosByColumn.get(colIndex).addAll(scanFutures[colIndex].join());
         }
+
+        int totalPages = pageInfosByColumn.stream().mapToInt(List::size).sum();
+        LOG.log(System.Logger.Level.DEBUG, "Page scanning complete: {0} total pages across {1} columns",
+                totalPages, columnCount);
+
+        // Create iterators for each column
+        iterators = new ColumnValueIterator[columnCount];
+        for (int i = 0; i < columnCount; i++) {
+            PageCursor pageCursor = new PageCursor(pageInfosByColumn.get(i), executor);
+            iterators[i] = new ColumnValueIterator(pageCursor, schema.getColumn(i), executor);
+        }
+
+        onInitialize();
+
+        // Eagerly load first batch
+        loadNextBatch();
     }
 
     /**
