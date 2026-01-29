@@ -14,7 +14,6 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.ExecutorService;
 
 import dev.morling.hardwood.internal.reader.MutableStruct;
 import dev.morling.hardwood.internal.reader.NestedColumnData;
@@ -42,8 +41,8 @@ final class NestedRowReader extends AbstractRowReader {
     private MutableStruct currentRow;
 
     NestedRowReader(FileSchema schema, FileChannel channel, List<RowGroup> rowGroups,
-                    ExecutorService executor, String fileName) {
-        super(schema, channel, rowGroups, executor, fileName);
+                    HardwoodContext context, String fileName) {
+        super(schema, channel, rowGroups, context, fileName);
     }
 
     @Override

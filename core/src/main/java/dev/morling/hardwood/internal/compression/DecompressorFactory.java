@@ -7,12 +7,32 @@
  */
 package dev.morling.hardwood.internal.compression;
 
+import java.lang.System.Logger;
+import java.lang.System.Logger.Level;
+
+import dev.morling.hardwood.internal.compression.libdeflate.LibdeflateDecompressor;
+import dev.morling.hardwood.internal.compression.libdeflate.LibdeflatePool;
 import dev.morling.hardwood.metadata.CompressionCodec;
 
 /**
  * Factory for creating decompressor instances based on compression codec.
  */
 public class DecompressorFactory {
+
+    private static final Logger LOG = System.getLogger(DecompressorFactory.class.getName());
+
+    private static volatile boolean gzipLogged = false;
+
+    private final LibdeflatePool libdeflatePool;
+
+    /**
+     * Create a new factory with the given libdeflate pool.
+     *
+     * @param libdeflatePool pool for libdeflate decompressor handles
+     */
+    public DecompressorFactory(LibdeflatePool libdeflatePool) {
+        this.libdeflatePool = libdeflatePool;
+    }
 
     /**
      * Get a decompressor for the given compression codec.
@@ -21,10 +41,17 @@ public class DecompressorFactory {
      * @return the appropriate decompressor
      * @throws UnsupportedOperationException if the codec is not supported or the required library is missing
      */
-    public static Decompressor getDecompressor(CompressionCodec codec) {
+    public Decompressor getDecompressor(CompressionCodec codec) {
         return switch (codec) {
             case UNCOMPRESSED -> new UncompressedDecompressor();
-            case GZIP -> new GzipDecompressor();
+            case GZIP -> {
+                if (libdeflatePool != null) {
+                    logGzipDecompressor("libdeflate (FFM)");
+                    yield new LibdeflateDecompressor(libdeflatePool);
+                }
+                logGzipDecompressor("Java Inflater");
+                yield new GzipDecompressor();
+            }
             case SNAPPY -> {
                 checkClassAvailable("org.xerial.snappy.Snappy",
                         "SNAPPY",
@@ -67,6 +94,13 @@ public class DecompressorFactory {
             throw new UnsupportedOperationException(
                     "Cannot read " + codecName + "-compressed Parquet file: required library not found. " +
                             "Add the following dependency to your project: " + dependency);
+        }
+    }
+
+    private static void logGzipDecompressor(String name) {
+        if (!gzipLogged) {
+            gzipLogged = true;
+            LOG.log(Level.INFO, "Using GZIP decompressor: {0}", name);
         }
     }
 }

@@ -35,6 +35,7 @@ import dev.morling.hardwood.internal.reader.TypedColumnData;
 import dev.morling.hardwood.metadata.ColumnChunk;
 import dev.morling.hardwood.metadata.LogicalType;
 import dev.morling.hardwood.metadata.RowGroup;
+import dev.morling.hardwood.reader.HardwoodContext;
 import dev.morling.hardwood.reader.ParquetFileReader;
 import dev.morling.hardwood.schema.ColumnSchema;
 import dev.morling.hardwood.schema.FileSchema;
@@ -67,6 +68,7 @@ public class PipelineBenchmark {
 
     private Path path;
     private FileChannel channel;
+    private HardwoodContext context;
     private FileSchema schema;
     private List<RowGroup> rowGroups;
     private List<List<PageInfo>> pagesByColumn;
@@ -81,6 +83,7 @@ public class PipelineBenchmark {
         }
 
         channel = FileChannel.open(path, StandardOpenOption.READ);
+        context = HardwoodContext.create();
         pagesByColumn = new ArrayList<>();
         columnNames = new ArrayList<>();
 
@@ -104,7 +107,7 @@ public class PipelineBenchmark {
                     ColumnChunk columnChunk = rowGroup.columns().get(colIdx);
                     ColumnSchema columnSchema = schema.getColumn(colIdx);
 
-                    PageScanner scanner = new PageScanner(channel, columnSchema, columnChunk);
+                    PageScanner scanner = new PageScanner(channel, columnSchema, columnChunk, context);
                     List<PageInfo> pages = scanner.scanPages();
                     totalPages += pages.size();
                     pagesByColumn.get(colIdx).addAll(pages);
@@ -120,6 +123,9 @@ public class PipelineBenchmark {
     public void tearDown() throws IOException {
         if (channel != null) {
             channel.close();
+        }
+        if (context != null) {
+            context.close();
         }
     }
 
@@ -137,7 +143,7 @@ public class PipelineBenchmark {
             }
 
             ColumnSchema columnSchema = schema.getColumn(colIdx);
-            SyncColumnAssembler assembler = new SyncColumnAssembler(columnPages, columnSchema);
+            SyncColumnAssembler assembler = new SyncColumnAssembler(columnPages, columnSchema, context.decompressorFactory());
 
             while (assembler.hasMore()) {
                 TypedColumnData batch = assembler.nextBatch(BATCH_SIZE);
@@ -158,7 +164,7 @@ public class PipelineBenchmark {
         // Create assemblers for all columns
         SyncColumnAssembler[] assemblers = new SyncColumnAssembler[columnCount];
         for (int i = 0; i < columnCount; i++) {
-            assemblers[i] = new SyncColumnAssembler(pagesByColumn.get(i), schema.getColumn(i));
+            assemblers[i] = new SyncColumnAssembler(pagesByColumn.get(i), schema.getColumn(i), context.decompressorFactory());
         }
 
         BenchmarkRowReader rowReader = new BenchmarkRowReader(schema);

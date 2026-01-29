@@ -14,13 +14,13 @@ import java.util.ArrayList;
 import java.util.List;
 
 import dev.morling.hardwood.internal.compression.Decompressor;
-import dev.morling.hardwood.internal.compression.DecompressorFactory;
 import dev.morling.hardwood.internal.thrift.PageHeaderReader;
 import dev.morling.hardwood.internal.thrift.ThriftCompactReader;
 import dev.morling.hardwood.metadata.ColumnChunk;
 import dev.morling.hardwood.metadata.ColumnMetaData;
 import dev.morling.hardwood.metadata.CompressionCodec;
 import dev.morling.hardwood.metadata.PageHeader;
+import dev.morling.hardwood.reader.HardwoodContext;
 import dev.morling.hardwood.schema.ColumnSchema;
 
 /**
@@ -35,11 +35,14 @@ public class PageScanner {
     private final FileChannel channel;
     private final ColumnSchema columnSchema;
     private final ColumnChunk columnChunk;
+    private final HardwoodContext context;
 
-    public PageScanner(FileChannel channel, ColumnSchema columnSchema, ColumnChunk columnChunk) {
+    public PageScanner(FileChannel channel, ColumnSchema columnSchema, ColumnChunk columnChunk,
+                       HardwoodContext context) {
         this.channel = channel;
         this.columnSchema = columnSchema;
         this.columnChunk = columnChunk;
+        this.context = context;
     }
 
     /**
@@ -81,7 +84,7 @@ public class PageScanner {
             int totalPageSize = headerSize + compressedSize;
 
             if (header.type() == PageHeader.PageType.DICTIONARY_PAGE) {
-                MappedByteBuffer compressedData = (MappedByteBuffer) buffer.slice(pageDataOffset, compressedSize);
+                MappedByteBuffer compressedData = buffer.slice(pageDataOffset, compressedSize);
                 int numValues = header.dictionaryPageHeader().numValues();
                 int uncompressedSize = header.uncompressedPageSize();
 
@@ -90,7 +93,7 @@ public class PageScanner {
             }
             else if (header.type() == PageHeader.PageType.DATA_PAGE ||
                      header.type() == PageHeader.PageType.DATA_PAGE_V2) {
-                MappedByteBuffer pageSlice = (MappedByteBuffer) buffer.slice(position, totalPageSize);
+                MappedByteBuffer pageSlice = buffer.slice(position, totalPageSize);
 
                 PageInfo pageInfo = new PageInfo(
                     pageSlice,
@@ -111,7 +114,7 @@ public class PageScanner {
 
     private Dictionary parseDictionary(MappedByteBuffer compressedData, int numValues,
             int uncompressedSize, ColumnSchema column, CompressionCodec codec) throws IOException {
-        Decompressor decompressor = DecompressorFactory.getDecompressor(codec);
+        Decompressor decompressor = context.decompressorFactory().getDecompressor(codec);
         byte[] data = decompressor.decompress(compressedData, uncompressedSize);
         return Dictionary.parse(data, numValues, column.type(), column.typeLength());
     }

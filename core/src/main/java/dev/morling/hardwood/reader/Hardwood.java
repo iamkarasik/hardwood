@@ -10,10 +10,6 @@ package dev.morling.hardwood.reader;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Entry point for reading Parquet files with a shared thread pool.
@@ -31,55 +27,42 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public class Hardwood implements AutoCloseable {
 
-    private final ExecutorService executor;
+    private final HardwoodContext context;
 
-    private Hardwood(ExecutorService executor) {
-        this.executor = executor;
+    private Hardwood(HardwoodContext context) {
+        this.context = context;
     }
 
     /**
      * Create a new Hardwood instance with a thread pool sized to available processors.
      */
     public static Hardwood create() {
-        return create(Runtime.getRuntime().availableProcessors());
+        return new Hardwood(HardwoodContext.create());
     }
 
     /**
      * Create a new Hardwood instance with a thread pool of the specified size.
      */
     public static Hardwood create(int threads) {
-        AtomicInteger threadCounter = new AtomicInteger(0);
-        ThreadFactory threadFactory = r -> {
-            Thread t = new Thread(r, "page-reader-" + threadCounter.getAndIncrement());
-            t.setDaemon(true);
-            return t;
-        };
-        ExecutorService executor = Executors.newFixedThreadPool(threads, threadFactory);
-        return new Hardwood(executor);
+        return new Hardwood(HardwoodContext.create(threads));
     }
 
     /**
      * Open a Parquet file for reading.
      */
     public ParquetFileReader open(Path path) throws IOException {
-        return ParquetFileReader.open(path, executor);
+        return ParquetFileReader.open(path, context);
     }
 
     /**
      * Get the executor service used by this instance.
      */
     public ExecutorService executor() {
-        return executor;
+        return context.executor();
     }
 
     @Override
     public void close() {
-        executor.shutdownNow();
-        try {
-            executor.awaitTermination(5, TimeUnit.SECONDS);
-        }
-        catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        context.close();
     }
 }

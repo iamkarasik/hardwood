@@ -43,16 +43,19 @@ public class PageReader {
 
     private final ColumnMetaData columnMetaData;
     private final ColumnSchema column;
+    private final DecompressorFactory decompressorFactory;
 
     /**
      * Constructor for page decoding.
      *
      * @param columnMetaData metadata for the column
      * @param column column schema
+     * @param context the hardwood context
      */
-    public PageReader(ColumnMetaData columnMetaData, ColumnSchema column) {
+    public PageReader(ColumnMetaData columnMetaData, ColumnSchema column, DecompressorFactory decompressorFactory) {
         this.columnMetaData = columnMetaData;
         this.column = column;
+        this.decompressorFactory = decompressorFactory;
     }
 
     /**
@@ -78,7 +81,7 @@ public class PageReader {
 
         return switch (pageHeader.type()) {
             case DATA_PAGE -> {
-                Decompressor decompressor = DecompressorFactory.getDecompressor(columnMetaData.codec());
+                Decompressor decompressor = decompressorFactory.getDecompressor(columnMetaData.codec());
                 byte[] uncompressedData = decompressor.decompress(pageData, pageHeader.uncompressedPageSize());
                 yield parseDataPage(pageHeader.dataPageHeader(), uncompressedData, dictionary);
             }
@@ -224,7 +227,7 @@ public class PageReader {
 
         if (header.isCompressed() && compressedValuesLen > 0) {
             MappedByteBuffer compressedValues = pageData.slice(valuesOffset, compressedValuesLen);
-            Decompressor decompressor = DecompressorFactory.getDecompressor(columnMetaData.codec());
+            Decompressor decompressor = decompressorFactory.getDecompressor(columnMetaData.codec());
             valuesData = decompressor.decompress(compressedValues, uncompressedValuesSize);
         }
         else {

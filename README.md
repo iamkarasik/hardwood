@@ -88,6 +88,46 @@ implementation 'com.aayushatharva.brotli4j:brotli4j:1.20.0'
 
 If you attempt to read a file using a compression codec whose library is not on the classpath, Hardwood will throw an exception with a message indicating which dependency to add.
 
+#### Optional: Faster GZIP with libdeflate (Java 22+)
+
+Hardwood can use [libdeflate](https://github.com/ebiggers/libdeflate) for GZIP decompression, which is significantly faster than the built-in Java implementation. This feature requires **Java 22 or newer** (it uses the Foreign Function & Memory API which became stable in Java 22).
+
+Allow native access in order to use libdeflate:
+
+```bash
+--enable-native-access=ALL-UNNAMED
+```
+
+libdeflate is a native library that must be installed on your system:
+
+**macOS:**
+```bash
+brew install libdeflate
+```
+
+**Linux (Debian/Ubuntu):**
+```bash
+apt install libdeflate-dev
+```
+
+**Linux (Fedora):**
+```bash
+dnf install libdeflate-devel
+```
+
+**Windows:**
+```bash
+vcpkg install libdeflate
+```
+
+Or download from [GitHub releases](https://github.com/ebiggers/libdeflate/releases).
+
+When libdeflate is installed and available on the library path, Hardwood will automatically use it for GZIP decompression. To disable libdeflate and use the built-in Java implementation instead, set the system property:
+
+```bash
+-Dhardwood.uselibdeflate=false
+```
+
 ---
 
 ## Usage
@@ -956,7 +996,8 @@ Remaining Failures by Category (8 total):
 
 ## Build
 
-This project requires Java 21 or newer for building.
+This project requires **Java 25 or newer for building** (to create the multi-release JAR with Java 22+ FFM support). The resulting JAR runs on **Java 21+** (libdeflate support requires Java 22+).
+
 It comes with the Apache [Maven wrapper](https://github.com/takari/maven-wrapper),
 i.e. a Maven distribution will be downloaded automatically, if needed.
 

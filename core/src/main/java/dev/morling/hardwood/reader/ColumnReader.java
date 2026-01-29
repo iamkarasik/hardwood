@@ -14,8 +14,6 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.Executor;
-import java.util.concurrent.ForkJoinPool;
 
 import dev.morling.hardwood.internal.conversion.LogicalTypeConverter;
 import dev.morling.hardwood.internal.reader.Page;
@@ -51,11 +49,8 @@ public class ColumnReader implements Closeable {
     // Lookahead buffer (single value)
     private ValueWithLevels lookahead;
 
-    public ColumnReader(Path path, ColumnSchema column, ColumnChunk columnChunk) throws IOException {
-        this(path, column, columnChunk, ForkJoinPool.commonPool());
-    }
-
-    public ColumnReader(Path path, ColumnSchema column, ColumnChunk columnChunk, Executor executor) throws IOException {
+    public ColumnReader(Path path, ColumnSchema column, ColumnChunk columnChunk,
+                        HardwoodContext context) throws IOException {
         this.column = column;
         this.columnMetaData = columnChunk.metaData();
         this.maxDefinitionLevel = column.maxDefinitionLevel();
@@ -66,11 +61,11 @@ public class ColumnReader implements Closeable {
         this.channel = FileChannel.open(path, StandardOpenOption.READ);
 
         // Scan pages using PageScanner
-        PageScanner scanner = new PageScanner(channel, column, columnChunk);
+        PageScanner scanner = new PageScanner(channel, column, columnChunk, context);
         List<PageInfo> pageInfos = scanner.scanPages();
 
         // Create PageCursor for async prefetching
-        this.pageCursor = new PageCursor(pageInfos, executor);
+        this.pageCursor = new PageCursor(pageInfos, context);
     }
 
     @Override

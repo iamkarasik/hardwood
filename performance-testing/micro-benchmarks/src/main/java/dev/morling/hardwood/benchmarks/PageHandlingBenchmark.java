@@ -32,7 +32,6 @@ import org.openjdk.jmh.annotations.Warmup;
 import org.openjdk.jmh.infra.Blackhole;
 
 import dev.morling.hardwood.internal.compression.Decompressor;
-import dev.morling.hardwood.internal.compression.DecompressorFactory;
 import dev.morling.hardwood.internal.reader.Page;
 import dev.morling.hardwood.internal.reader.PageInfo;
 import dev.morling.hardwood.internal.reader.PageReader;
@@ -42,6 +41,7 @@ import dev.morling.hardwood.internal.thrift.ThriftCompactReader;
 import dev.morling.hardwood.metadata.ColumnChunk;
 import dev.morling.hardwood.metadata.PageHeader;
 import dev.morling.hardwood.metadata.RowGroup;
+import dev.morling.hardwood.reader.HardwoodContext;
 import dev.morling.hardwood.reader.ParquetFileReader;
 import dev.morling.hardwood.schema.ColumnSchema;
 import dev.morling.hardwood.schema.FileSchema;
@@ -62,6 +62,7 @@ public class PageHandlingBenchmark {
 
     private Path path;
     private FileChannel channel;
+    private HardwoodContext context;
     private List<PageInfo> allPages;
 
     @Setup
@@ -73,6 +74,7 @@ public class PageHandlingBenchmark {
         }
 
         channel = FileChannel.open(path, StandardOpenOption.READ);
+        context = HardwoodContext.create();
         allPages = new ArrayList<>();
 
         // Scan all pages from all columns in all row groups
@@ -85,7 +87,7 @@ public class PageHandlingBenchmark {
                     ColumnChunk columnChunk = rowGroup.columns().get(colIdx);
                     ColumnSchema columnSchema = schema.getColumn(colIdx);
 
-                    PageScanner scanner = new PageScanner(channel, columnSchema, columnChunk);
+                    PageScanner scanner = new PageScanner(channel, columnSchema, columnChunk, context);
                     allPages.addAll(scanner.scanPages());
                 }
             }
@@ -98,6 +100,9 @@ public class PageHandlingBenchmark {
     public void tearDown() throws IOException {
         if (channel != null) {
             channel.close();
+        }
+        if (context != null) {
+            context.close();
         }
     }
 
@@ -119,7 +124,7 @@ public class PageHandlingBenchmark {
             MappedByteBuffer compressedData = pageData.slice(headerSize, compressedSize);
 
             // Decompress using the file's actual codec
-            Decompressor decompressor = DecompressorFactory.getDecompressor(pageInfo.columnMetaData().codec());
+            Decompressor decompressor = context.decompressorFactory().getDecompressor(pageInfo.columnMetaData().codec());
             byte[] decompressed = decompressor.decompress(compressedData, uncompressedSize);
             blackhole.consume(decompressed);
         }
@@ -128,7 +133,7 @@ public class PageHandlingBenchmark {
     @Benchmark
     public void b_decodePages(Blackhole blackhole) throws IOException {
         for (PageInfo pageInfo : allPages) {
-            PageReader pageReader = new PageReader(pageInfo.columnMetaData(), pageInfo.columnSchema());
+            PageReader pageReader = new PageReader(pageInfo.columnMetaData(), pageInfo.columnSchema(), context.decompressorFactory());
             Page page = pageReader.decodePage(pageInfo.pageData(), pageInfo.dictionary());
             blackhole.consume(page);
         }

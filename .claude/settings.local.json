@@ -87,7 +87,8 @@
       "Bash(sort:*)",
       "Bash(git add:*)",
       "Bash(git restore:*)",
-      "WebFetch(domain:avro.apache.org)"
+      "WebFetch(domain:avro.apache.org)",
+      "Bash(wc:*)"
     ]
   }
 }

@@ -13,6 +13,8 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 
+import dev.morling.hardwood.reader.HardwoodContext;
+
 /**
  * Cursor over a column's pages with async prefetching.
  * Pages are decoded in parallel using the provided executor.
@@ -45,9 +47,9 @@ public class PageCursor {
     private int hitCount = 0;
     private int missCount = 0;
 
-    public PageCursor(List<PageInfo> pageInfos, Executor executor) {
+    public PageCursor(List<PageInfo> pageInfos, HardwoodContext context) {
         this.pageInfos = pageInfos;
-        this.executor = executor;
+        this.executor = context.executor();
         if (pageInfos.isEmpty()) {
             this.columnName = "unknown";
             this.pageReader = null;
@@ -57,7 +59,8 @@ public class PageCursor {
             this.columnName = first.columnSchema().name();
             this.pageReader = new PageReader(
                     first.columnMetaData(),
-                    first.columnSchema());
+                    first.columnSchema(),
+                    context.decompressorFactory());
         }
         // Start prefetching immediately
         fillPrefetchQueue();

@@ -11,6 +11,7 @@ import java.io.IOException;
 import java.util.BitSet;
 import java.util.List;
 
+import dev.morling.hardwood.internal.compression.DecompressorFactory;
 import dev.morling.hardwood.internal.reader.FlatColumnData;
 import dev.morling.hardwood.internal.reader.Page;
 import dev.morling.hardwood.internal.reader.PageInfo;
@@ -33,12 +34,12 @@ public class SyncColumnAssembler {
     private Page currentPage;
     private int position;
 
-    public SyncColumnAssembler(List<PageInfo> pages, ColumnSchema column) {
+    public SyncColumnAssembler(List<PageInfo> pages, ColumnSchema column, DecompressorFactory decompressorFactory) {
         this.pages = pages;
         this.column = column;
         if (!pages.isEmpty()) {
             PageInfo first = pages.get(0);
-            this.pageReader = new PageReader(first.columnMetaData(), first.columnSchema());
+            this.pageReader = new PageReader(first.columnMetaData(), first.columnSchema(), decompressorFactory);
         }
         else {
             this.pageReader = null;

@@ -14,7 +14,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ForkJoinPool;
 
 import dev.morling.hardwood.internal.reader.ColumnValueIterator;
 import dev.morling.hardwood.internal.reader.PageCursor;
@@ -37,7 +37,7 @@ abstract class AbstractRowReader implements RowReader {
     protected final FileSchema schema;
     private final FileChannel channel;
     private final List<RowGroup> rowGroups;
-    private final ExecutorService executor;
+    private final HardwoodContext context;
     private final String fileName;
 
     private ColumnValueIterator[] iterators;
@@ -49,11 +49,11 @@ abstract class AbstractRowReader implements RowReader {
     private boolean initialized = false;
 
     protected AbstractRowReader(FileSchema schema, FileChannel channel, List<RowGroup> rowGroups,
-                                ExecutorService executor, String fileName) {
+                                HardwoodContext context, String fileName) {
         this.schema = schema;
         this.channel = channel;
         this.rowGroups = rowGroups;
-        this.executor = executor;
+        this.context = context;
         this.fileName = fileName;
     }
 
@@ -89,7 +89,7 @@ abstract class AbstractRowReader implements RowReader {
                 List<PageInfo> columnPages = new ArrayList<>();
                 for (RowGroup rowGroup : rowGroups) {
                     ColumnChunk columnChunk = rowGroup.columns().get(col);
-                    PageScanner scanner = new PageScanner(channel, columnSchema, columnChunk);
+                    PageScanner scanner = new PageScanner(channel, columnSchema, columnChunk, context);
                     try {
                         columnPages.addAll(scanner.scanPages());
                     }
@@ -98,7 +98,7 @@ abstract class AbstractRowReader implements RowReader {
                     }
                 }
                 return columnPages;
-            }, executor);
+            }, context.executor());
         }
 
         // Wait for all scans to complete and collect results
@@ -115,7 +115,7 @@ abstract class AbstractRowReader implements RowReader {
         // Create iterators for each column
         iterators = new ColumnValueIterator[columnCount];
         for (int i = 0; i < columnCount; i++) {
-            PageCursor pageCursor = new PageCursor(pageInfosByColumn.get(i), executor);
+            PageCursor pageCursor = new PageCursor(pageInfosByColumn.get(i), context);
             iterators[i] = new ColumnValueIterator(pageCursor, schema.getColumn(i), schema.isFlatSchema());
         }
 
@@ -168,10 +168,12 @@ abstract class AbstractRowReader implements RowReader {
 
     @SuppressWarnings("unchecked")
     private boolean loadNextBatch() {
+        // Use commonPool for batch tasks to avoid deadlock with prefetch tasks on context.executor().
+        // Batch tasks block waiting for prefetches; using separate pools prevents thread starvation.
         CompletableFuture<TypedColumnData>[] futures = new CompletableFuture[iterators.length];
         for (int i = 0; i < iterators.length; i++) {
             final int col = i;
-            futures[i] = CompletableFuture.supplyAsync(() -> iterators[col].readBatch(BATCH_SIZE), executor);
+            futures[i] = CompletableFuture.supplyAsync(() -> iterators[col].readBatch(BATCH_SIZE), ForkJoinPool.commonPool());
         }
 
         CompletableFuture.allOf(futures).join();

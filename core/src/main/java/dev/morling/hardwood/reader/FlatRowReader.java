@@ -16,7 +16,6 @@ import java.time.LocalTime;
 import java.util.BitSet;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.ExecutorService;
 
 import dev.morling.hardwood.internal.conversion.LogicalTypeConverter;
 import dev.morling.hardwood.internal.reader.FlatColumnData;
@@ -44,8 +43,8 @@ final class FlatRowReader extends AbstractRowReader {
     private BitSet[] nulls;
 
     FlatRowReader(FileSchema schema, FileChannel channel, List<RowGroup> rowGroups,
-                  ExecutorService executor, String fileName) {
-        super(schema, channel, rowGroups, executor, fileName);
+                  HardwoodContext context, String fileName) {
+        super(schema, channel, rowGroups, context, fileName);
     }
 
     @Override

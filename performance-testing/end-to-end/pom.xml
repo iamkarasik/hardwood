@@ -123,7 +123,7 @@
          <groupId>org.apache.maven.plugins</groupId>
          <artifactId>maven-surefire-plugin</artifactId>
          <configuration>
-           <argLine>-XX:+UnlockDiagnosticVMOptions -XX:+DebugNonSafepoints</argLine>
+           <argLine>-XX:+UnlockDiagnosticVMOptions -XX:+DebugNonSafepoints --enable-native-access=ALL-UNNAMED</argLine>
          </configuration>
        </plugin>
     </plugins>
