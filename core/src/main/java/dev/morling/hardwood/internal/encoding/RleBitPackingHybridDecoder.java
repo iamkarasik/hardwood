@@ -213,9 +213,18 @@ public class RleBitPackingHybridDecoder {
     }
 
     private static int countNonNulls(int[] defLevels, int maxDef) {
-        int count = 0;
-        for (int level : defLevels) {
-            if (level == maxDef) {
+        int count0 = 0, count1 = 0, count2 = 0, count3 = 0;
+        int i = 0;
+        int len = defLevels.length;
+        for (; i + 8 <= len; i += 8) {
+            count0 += (defLevels[i] == maxDef ? 1 : 0) + (defLevels[i + 4] == maxDef ? 1 : 0);
+            count1 += (defLevels[i + 1] == maxDef ? 1 : 0) + (defLevels[i + 5] == maxDef ? 1 : 0);
+            count2 += (defLevels[i + 2] == maxDef ? 1 : 0) + (defLevels[i + 6] == maxDef ? 1 : 0);
+            count3 += (defLevels[i + 3] == maxDef ? 1 : 0) + (defLevels[i + 7] == maxDef ? 1 : 0);
+        }
+        int count = count0 + count1 + count2 + count3;
+        for (; i < len; i++) {
+            if (defLevels[i] == maxDef) {
                 count++;
             }
         }

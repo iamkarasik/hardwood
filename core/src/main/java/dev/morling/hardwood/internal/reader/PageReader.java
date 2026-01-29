@@ -347,37 +347,9 @@ public class PageReader {
                     throw new IOException("Failed to read bit width for dictionary indices");
                 }
                 byte[] indicesData = dataStream.readAllBytes();
-                RleBitPackingHybridDecoder indexDecoder = new RleBitPackingHybridDecoder(
-                        new ByteArrayInputStream(indicesData), bitWidth);
+                RleBitPackingHybridDecoder indexDecoder = new RleBitPackingHybridDecoder(indicesData, bitWidth);
 
-                // Use typed dictionary directly
-                return switch (dictionary) {
-                    case Dictionary.LongDictionary d -> {
-                        long[] values = new long[numValues];
-                        indexDecoder.readDictionaryLongs(values, d.values(), definitionLevels, maxDefLevel);
-                        yield new Page.LongPage(values, definitionLevels, repetitionLevels, maxDefLevel, numValues);
-                    }
-                    case Dictionary.DoubleDictionary d -> {
-                        double[] values = new double[numValues];
-                        indexDecoder.readDictionaryDoubles(values, d.values(), definitionLevels, maxDefLevel);
-                        yield new Page.DoublePage(values, definitionLevels, repetitionLevels, maxDefLevel, numValues);
-                    }
-                    case Dictionary.IntDictionary d -> {
-                        int[] values = new int[numValues];
-                        indexDecoder.readDictionaryInts(values, d.values(), definitionLevels, maxDefLevel);
-                        yield new Page.IntPage(values, definitionLevels, repetitionLevels, maxDefLevel, numValues);
-                    }
-                    case Dictionary.FloatDictionary d -> {
-                        float[] values = new float[numValues];
-                        indexDecoder.readDictionaryFloats(values, d.values(), definitionLevels, maxDefLevel);
-                        yield new Page.FloatPage(values, definitionLevels, repetitionLevels, maxDefLevel, numValues);
-                    }
-                    case Dictionary.ByteArrayDictionary d -> {
-                        byte[][] values = new byte[numValues][];
-                        indexDecoder.readDictionaryByteArrays(values, d.values(), definitionLevels, maxDefLevel);
-                        yield new Page.ByteArrayPage(values, definitionLevels, repetitionLevels, maxDefLevel, numValues);
-                    }
-                };
+                return dictionary.decodePage(indexDecoder, numValues, definitionLevels, repetitionLevels, maxDefLevel);
             }
             case RLE -> {
                 // RLE encoding for boolean values uses bit-width of 1

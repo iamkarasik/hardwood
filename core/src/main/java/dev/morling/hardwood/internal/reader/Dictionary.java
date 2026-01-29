@@ -11,6 +11,7 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 
 import dev.morling.hardwood.internal.encoding.PlainDecoder;
+import dev.morling.hardwood.internal.encoding.RleBitPackingHybridDecoder;
 import dev.morling.hardwood.metadata.PhysicalType;
 
 /**
@@ -20,6 +21,14 @@ import dev.morling.hardwood.metadata.PhysicalType;
 public sealed interface Dictionary {
 
     int size();
+
+    /**
+     * Decode dictionary values into a Page using the given index decoder.
+     * This avoids megamorphic dispatch in the caller by moving type-specific
+     * logic into the Dictionary implementation.
+     */
+    Page decodePage(RleBitPackingHybridDecoder indexDecoder, int numValues,
+                    int[] definitionLevels, int[] repetitionLevels, int maxDefLevel);
 
     /**
      * Parse dictionary values from decompressed data.
@@ -70,12 +79,28 @@ public sealed interface Dictionary {
         public int size() {
             return values.length;
         }
+
+        @Override
+        public Page decodePage(RleBitPackingHybridDecoder indexDecoder, int numValues,
+                               int[] definitionLevels, int[] repetitionLevels, int maxDefLevel) {
+            int[] output = new int[numValues];
+            indexDecoder.readDictionaryInts(output, values, definitionLevels, maxDefLevel);
+            return new Page.IntPage(output, definitionLevels, repetitionLevels, maxDefLevel, numValues);
+        }
     }
 
     record LongDictionary(long[] values) implements Dictionary {
         @Override
         public int size() {
             return values.length;
+        }
+
+        @Override
+        public Page decodePage(RleBitPackingHybridDecoder indexDecoder, int numValues,
+                               int[] definitionLevels, int[] repetitionLevels, int maxDefLevel) {
+            long[] output = new long[numValues];
+            indexDecoder.readDictionaryLongs(output, values, definitionLevels, maxDefLevel);
+            return new Page.LongPage(output, definitionLevels, repetitionLevels, maxDefLevel, numValues);
         }
     }
 
@@ -84,6 +109,14 @@ public sealed interface Dictionary {
         public int size() {
             return values.length;
         }
+
+        @Override
+        public Page decodePage(RleBitPackingHybridDecoder indexDecoder, int numValues,
+                               int[] definitionLevels, int[] repetitionLevels, int maxDefLevel) {
+            float[] output = new float[numValues];
+            indexDecoder.readDictionaryFloats(output, values, definitionLevels, maxDefLevel);
+            return new Page.FloatPage(output, definitionLevels, repetitionLevels, maxDefLevel, numValues);
+        }
     }
 
     record DoubleDictionary(double[] values) implements Dictionary {
@@ -91,12 +124,28 @@ public sealed interface Dictionary {
         public int size() {
             return values.length;
         }
+
+        @Override
+        public Page decodePage(RleBitPackingHybridDecoder indexDecoder, int numValues,
+                               int[] definitionLevels, int[] repetitionLevels, int maxDefLevel) {
+            double[] output = new double[numValues];
+            indexDecoder.readDictionaryDoubles(output, values, definitionLevels, maxDefLevel);
+            return new Page.DoublePage(output, definitionLevels, repetitionLevels, maxDefLevel, numValues);
+        }
     }
 
     record ByteArrayDictionary(byte[][] values) implements Dictionary {
         @Override
         public int size() {
             return values.length;
+        }
+
+        @Override
+        public Page decodePage(RleBitPackingHybridDecoder indexDecoder, int numValues,
+                               int[] definitionLevels, int[] repetitionLevels, int maxDefLevel) {
+            byte[][] output = new byte[numValues][];
+            indexDecoder.readDictionaryByteArrays(output, values, definitionLevels, maxDefLevel);
+            return new Page.ByteArrayPage(output, definitionLevels, repetitionLevels, maxDefLevel, numValues);
         }
     }
 }
