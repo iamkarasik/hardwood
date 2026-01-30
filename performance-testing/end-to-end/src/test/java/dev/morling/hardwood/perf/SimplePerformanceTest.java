@@ -29,6 +29,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 
 import dev.morling.hardwood.metadata.PhysicalType;
+import dev.morling.hardwood.reader.Hardwood;
 import dev.morling.hardwood.reader.ParquetFileReader;
 import dev.morling.hardwood.reader.RowReader;
 import dev.morling.hardwood.schema.SchemaNode;
@@ -229,43 +230,45 @@ class SimplePerformanceTest {
         double fareAmount = 0.0;
         long rowCount = 0;
 
-        for (Path file : files) {
-            try (ParquetFileReader reader = ParquetFileReader.open(file);
-                    RowReader rowReader = reader.createRowReader()) {
+        try (Hardwood hardwood = Hardwood.create()) {
+            for (Path file : files) {
+                try (ParquetFileReader reader = hardwood.open(file);
+                        RowReader rowReader = reader.createRowReader()) {
 
-                // Check column type once per file
-                SchemaNode pcNode = reader.getFileSchema().getField("passenger_count");
+                    // Check column type once per file
+                    SchemaNode pcNode = reader.getFileSchema().getField("passenger_count");
 
-                boolean pcIsLong = pcNode instanceof SchemaNode.PrimitiveNode pn
-                        && pn.type() == PhysicalType.INT64;
+                    boolean pcIsLong = pcNode instanceof SchemaNode.PrimitiveNode pn
+                            && pn.type() == PhysicalType.INT64;
 
-                int passengerCountIndex = reader.getFileSchema().getColumn("passenger_count").columnIndex();
-                int tripDistanceIndex = reader.getFileSchema().getColumn("trip_distance").columnIndex();
-                int fareAmountIndex = reader.getFileSchema().getColumn("fare_amount").columnIndex();
+                    int passengerCountIndex = reader.getFileSchema().getColumn("passenger_count").columnIndex();
+                    int tripDistanceIndex = reader.getFileSchema().getColumn("trip_distance").columnIndex();
+                    int fareAmountIndex = reader.getFileSchema().getColumn("fare_amount").columnIndex();
 
-                while (rowReader.hasNext()) {
-                    rowReader.next();
-                    rowCount++;
-                    if (!rowReader.isNull(passengerCountIndex)) {
-                        if (pcIsLong) {
-                            passengerCount += rowReader.getLong(passengerCountIndex);
+                    while (rowReader.hasNext()) {
+                        rowReader.next();
+                        rowCount++;
+                        if (!rowReader.isNull(passengerCountIndex)) {
+                            if (pcIsLong) {
+                                passengerCount += rowReader.getLong(passengerCountIndex);
+                            }
+                            else {
+                                passengerCount += (long) rowReader.getDouble(passengerCountIndex);
+                            }
                         }
-                        else {
-                            passengerCount += (long) rowReader.getDouble(passengerCountIndex);
+
+                        if (!rowReader.isNull(tripDistanceIndex)) {
+                            tripDistance += rowReader.getDouble(tripDistanceIndex);
                         }
-                    }
 
-                    if (!rowReader.isNull(tripDistanceIndex)) {
-                        tripDistance += rowReader.getDouble(tripDistanceIndex);
-                    }
-
-                    if (!rowReader.isNull(fareAmountIndex)) {
-                        fareAmount += rowReader.getDouble(fareAmountIndex);
+                        if (!rowReader.isNull(fareAmountIndex)) {
+                            fareAmount += rowReader.getDouble(fareAmountIndex);
+                        }
                     }
                 }
-            }
-            catch (IOException e) {
-                throw new RuntimeException("Failed to read file: " + file, e);
+                catch (IOException e) {
+                    throw new RuntimeException("Failed to read file: " + file, e);
+                }
             }
         }
         return new Result(passengerCount, tripDistance, fareAmount, 0, rowCount);
@@ -277,39 +280,41 @@ class SimplePerformanceTest {
         double fareAmount = 0.0;
         long rowCount = 0;
 
-        for (Path file : files) {
-            try (ParquetFileReader reader = ParquetFileReader.open(file);
-                    RowReader rowReader = reader.createRowReader()) {
+        try (Hardwood hardwood = Hardwood.create()) {
+            for (Path file : files) {
+                try (ParquetFileReader reader = hardwood.open(file);
+                        RowReader rowReader = reader.createRowReader()) {
 
-                // Check column type once per file
-                SchemaNode pcNode = reader.getFileSchema().getField("passenger_count");
+                    // Check column type once per file
+                    SchemaNode pcNode = reader.getFileSchema().getField("passenger_count");
 
-                boolean pcIsLong = pcNode instanceof SchemaNode.PrimitiveNode pn
-                        && pn.type() == PhysicalType.INT64;
+                    boolean pcIsLong = pcNode instanceof SchemaNode.PrimitiveNode pn
+                            && pn.type() == PhysicalType.INT64;
 
-                while (rowReader.hasNext()) {
-                    rowReader.next();
-                    rowCount++;
-                    if (!rowReader.isNull("passenger_count")) {
-                        if (pcIsLong) {
-                            passengerCount += rowReader.getLong("passenger_count");
+                    while (rowReader.hasNext()) {
+                        rowReader.next();
+                        rowCount++;
+                        if (!rowReader.isNull("passenger_count")) {
+                            if (pcIsLong) {
+                                passengerCount += rowReader.getLong("passenger_count");
+                            }
+                            else {
+                                passengerCount += (long) rowReader.getDouble("passenger_count");
+                            }
                         }
-                        else {
-                            passengerCount += (long) rowReader.getDouble("passenger_count");
+
+                        if (!rowReader.isNull("trip_distance")) {
+                            tripDistance += rowReader.getDouble("trip_distance");
                         }
-                    }
 
-                    if (!rowReader.isNull("trip_distance")) {
-                        tripDistance += rowReader.getDouble("trip_distance");
-                    }
-
-                    if (!rowReader.isNull("fare_amount")) {
-                        fareAmount += rowReader.getDouble("fare_amount");
+                        if (!rowReader.isNull("fare_amount")) {
+                            fareAmount += rowReader.getDouble("fare_amount");
+                        }
                     }
                 }
-            }
-            catch (IOException e) {
-                throw new RuntimeException("Failed to read file: " + file, e);
+                catch (IOException e) {
+                    throw new RuntimeException("Failed to read file: " + file, e);
+                }
             }
         }
         return new Result(passengerCount, tripDistance, fareAmount, 0, rowCount);

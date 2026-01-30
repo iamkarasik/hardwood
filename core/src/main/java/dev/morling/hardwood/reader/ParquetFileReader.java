@@ -18,7 +18,9 @@ import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import dev.morling.hardwood.internal.thrift.FileMetaDataReader;
 import dev.morling.hardwood.internal.thrift.ThriftCompactReader;
@@ -28,8 +30,17 @@ import dev.morling.hardwood.schema.ColumnSchema;
 import dev.morling.hardwood.schema.FileSchema;
 
 /**
- * Main reader for Parquet files.
- * Handles file structure validation and metadata parsing.
+ * Reader for individual Parquet files.
+ *
+ * <p>For single-file usage:</p>
+ * <pre>{@code
+ * try (ParquetFileReader reader = ParquetFileReader.open(path)) {
+ *     RowReader rows = reader.createRowReader();
+ *     // ...
+ * }
+ * }</pre>
+ *
+ * <p>For multi-file usage with shared thread pool, use {@link Hardwood}.</p>
  */
 public class ParquetFileReader implements AutoCloseable {
 
@@ -41,18 +52,43 @@ public class ParquetFileReader implements AutoCloseable {
     private final FileChannel channel;
     private final FileMetaData fileMetaData;
     private final ExecutorService executor;
+    private final boolean ownsExecutor;
 
-    private ParquetFileReader(Path path, FileChannel channel, FileMetaData fileMetaData) {
+    private ParquetFileReader(Path path, FileChannel channel, FileMetaData fileMetaData,
+                              ExecutorService executor, boolean ownsExecutor) {
         this.path = path;
         this.channel = channel;
         this.fileMetaData = fileMetaData;
-
-        // Use virtual threads to handle nested parallelism (column-level + page-level)
-        // without deadlocking on a fixed-size thread pool
-        this.executor = Executors.newVirtualThreadPerTaskExecutor();
+        this.executor = executor;
+        this.ownsExecutor = ownsExecutor;
     }
 
+    /**
+     * Open a Parquet file with a dedicated thread pool.
+     * The thread pool is shut down when this reader is closed.
+     */
     public static ParquetFileReader open(Path path) throws IOException {
+        AtomicInteger threadCounter = new AtomicInteger(0);
+        ThreadFactory threadFactory = r -> {
+            Thread t = new Thread(r, "page-reader-" + threadCounter.getAndIncrement());
+            t.setDaemon(true);
+            return t;
+        };
+        ExecutorService executor = Executors.newFixedThreadPool(
+                Runtime.getRuntime().availableProcessors(), threadFactory);
+        return open(path, executor, true);
+    }
+
+    /**
+     * Open a Parquet file with a shared executor.
+     * The executor is NOT shut down when this reader is closed.
+     */
+    static ParquetFileReader open(Path path, ExecutorService executor) throws IOException {
+        return open(path, executor, false);
+    }
+
+    private static ParquetFileReader open(Path path, ExecutorService executor,
+                                          boolean ownsExecutor) throws IOException {
         FileChannel channel = FileChannel.open(path, StandardOpenOption.READ);
         try {
             // Validate file size
@@ -94,7 +130,7 @@ public class ParquetFileReader implements AutoCloseable {
             ThriftCompactReader reader = new ThriftCompactReader(new ByteArrayInputStream(footerBuf.array()));
             FileMetaData fileMetaData = FileMetaDataReader.read(reader);
 
-            return new ParquetFileReader(path, channel, fileMetaData);
+            return new ParquetFileReader(path, channel, fileMetaData, executor, ownsExecutor);
         }
         catch (Exception e) {
             // Close channel if there was an error during initialization
@@ -149,13 +185,15 @@ public class ParquetFileReader implements AutoCloseable {
 
     @Override
     public void close() throws IOException {
-        // Shutdown executor
-        executor.shutdownNow();
-        try {
-            executor.awaitTermination(5, TimeUnit.SECONDS);
-        }
-        catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+        // Only shut down executor if we created it
+        if (ownsExecutor) {
+            executor.shutdownNow();
+            try {
+                executor.awaitTermination(5, TimeUnit.SECONDS);
+            }
+            catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
         }
 
         // Close channel

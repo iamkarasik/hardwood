@@ -234,6 +234,38 @@ while (rowReader.hasNext()) {
 
 **Type validation:** The API validates at runtime that the requested type matches the schema. Mismatches throw `IllegalArgumentException` with a descriptive message.
 
+### Reading Multiple Files
+
+When processing multiple Parquet files, use the `Hardwood` class to share a thread pool across readers:
+
+```java
+import dev.morling.hardwood.reader.Hardwood;
+import dev.morling.hardwood.reader.ParquetFileReader;
+import dev.morling.hardwood.reader.RowReader;
+
+try (Hardwood hardwood = Hardwood.create()) {
+    for (Path file : parquetFiles) {
+        try (ParquetFileReader reader = hardwood.open(file);
+                RowReader rowReader = reader.createRowReader()) {
+            while (rowReader.hasNext()) {
+                rowReader.next();
+                // Process rows...
+            }
+        }
+    }
+}
+```
+
+This avoids the overhead of creating and destroying thread pools for each file. The thread pool is sized to the number of available processors by default, or you can specify a custom size:
+
+```java
+try (Hardwood hardwood = Hardwood.create(4)) {  // 4 threads
+    // ...
+}
+```
+
+For single-file usage, `ParquetFileReader.open(path)` remains the simplest option—it manages its own thread pool internally.
+
 ### Column-Oriented Reading (ColumnReader)
 
 The `ColumnReader` provides lower-level columnar access, useful when you need to process specific columns independently or when working with the columnar nature of Parquet directly.
