@@ -52,7 +52,7 @@ import dev.morling.hardwood.schema.FileSchema;
 @Fork(value = 2, jvmArgs = { "-Xms1g", "-Xmx1g" })
 @Warmup(iterations = 3, time = 1)
 @Measurement(iterations = 5, time = 1)
-public class PageDecompressionBenchmark {
+public class PageHandlingBenchmark {
 
     @Param({})
     private String dataDir;
@@ -102,7 +102,7 @@ public class PageDecompressionBenchmark {
     }
 
     @Benchmark
-    public void decompressPages(Blackhole blackhole) throws IOException {
+    public void a_decompressPages(Blackhole blackhole) throws IOException {
         for (PageInfo pageInfo : allPages) {
             MappedByteBuffer pageData = pageInfo.pageData();
 
@@ -126,7 +126,7 @@ public class PageDecompressionBenchmark {
     }
 
     @Benchmark
-    public void decodePages(Blackhole blackhole) throws IOException {
+    public void b_decodePages(Blackhole blackhole) throws IOException {
         for (PageInfo pageInfo : allPages) {
             PageReader pageReader = new PageReader(pageInfo.columnMetaData(), pageInfo.columnSchema());
             Page page = pageReader.decodePage(pageInfo.pageData(), pageInfo.dictionary());
