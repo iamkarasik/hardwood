@@ -7,6 +7,8 @@
  */
 package dev.morling.hardwood.internal.reader;
 
+import java.util.BitSet;
+
 import dev.morling.hardwood.schema.ColumnSchema;
 
 /**
@@ -33,16 +35,38 @@ public sealed interface TypedColumnData {
     /** Record offsets for nested schemas, null for flat schemas. */
     int[] recordOffsets();
 
+    /** Pre-computed null flags for fast null checks. Null if column is non-nullable. */
+    BitSet nulls();
+
     /** Get the value at index, boxing primitives. Used by RecordAssembler for nested schemas. */
     Object getValue(int index);
 
     default boolean isNull(int index) {
-        int maxDefLevel = maxDefinitionLevel();
-        if (maxDefLevel == 0) {
-            return false;
+        BitSet n = nulls();
+        return n != null && n.get(index);
+    }
+
+    /**
+     * Compute null flags from definition levels.
+     * Returns null if the column has no nulls (maxDefLevel == 0).
+     */
+    static BitSet computeNulls(int[] definitionLevels, int maxDefinitionLevel, int valueCount) {
+        if (maxDefinitionLevel == 0) {
+            return null;
         }
-        int[] defLevels = definitionLevels();
-        return defLevels == null || defLevels[index] < maxDefLevel;
+        BitSet nulls = new BitSet(valueCount);
+        if (definitionLevels == null) {
+            // All nulls if no definition levels but maxDefLevel > 0
+            nulls.set(0, valueCount);
+        }
+        else {
+            for (int i = 0; i < valueCount; i++) {
+                if (definitionLevels[i] < maxDefinitionLevel) {
+                    nulls.set(i);
+                }
+            }
+        }
+        return nulls;
     }
 
     default int getDefLevel(int index) {
@@ -74,9 +98,20 @@ public sealed interface TypedColumnData {
     int valueCount();
 
     record IntColumn(ColumnSchema column, int[] values, int[] definitionLevels, int[] repetitionLevels,
-                     int[] recordOffsets, int maxDefinitionLevel, int recordCount) implements TypedColumnData {
+                     int[] recordOffsets, BitSet nulls, int maxDefinitionLevel, int recordCount) implements TypedColumnData {
+        /** Convenience constructor for flat schemas. */
         public IntColumn(ColumnSchema column, int[] values, int[] definitionLevels, int maxDefinitionLevel, int recordCount) {
-            this(column, values, definitionLevels, null, null, maxDefinitionLevel, recordCount);
+            this(column, values, definitionLevels, null, null,
+                    computeNulls(definitionLevels, maxDefinitionLevel, values.length),
+                    maxDefinitionLevel, recordCount);
+        }
+
+        /** Convenience constructor for nested schemas. */
+        public IntColumn(ColumnSchema column, int[] values, int[] definitionLevels, int[] repetitionLevels,
+                         int[] recordOffsets, int maxDefinitionLevel, int recordCount) {
+            this(column, values, definitionLevels, repetitionLevels, recordOffsets,
+                    computeNulls(definitionLevels, maxDefinitionLevel, values.length),
+                    maxDefinitionLevel, recordCount);
         }
 
         public int get(int index) {
@@ -95,9 +130,20 @@ public sealed interface TypedColumnData {
     }
 
     record LongColumn(ColumnSchema column, long[] values, int[] definitionLevels, int[] repetitionLevels,
-                      int[] recordOffsets, int maxDefinitionLevel, int recordCount) implements TypedColumnData {
+                      int[] recordOffsets, BitSet nulls, int maxDefinitionLevel, int recordCount) implements TypedColumnData {
+        /** Convenience constructor for flat schemas. */
         public LongColumn(ColumnSchema column, long[] values, int[] definitionLevels, int maxDefinitionLevel, int recordCount) {
-            this(column, values, definitionLevels, null, null, maxDefinitionLevel, recordCount);
+            this(column, values, definitionLevels, null, null,
+                    computeNulls(definitionLevels, maxDefinitionLevel, values.length),
+                    maxDefinitionLevel, recordCount);
+        }
+
+        /** Convenience constructor for nested schemas. */
+        public LongColumn(ColumnSchema column, long[] values, int[] definitionLevels, int[] repetitionLevels,
+                          int[] recordOffsets, int maxDefinitionLevel, int recordCount) {
+            this(column, values, definitionLevels, repetitionLevels, recordOffsets,
+                    computeNulls(definitionLevels, maxDefinitionLevel, values.length),
+                    maxDefinitionLevel, recordCount);
         }
 
         public long get(int index) {
@@ -116,9 +162,20 @@ public sealed interface TypedColumnData {
     }
 
     record FloatColumn(ColumnSchema column, float[] values, int[] definitionLevels, int[] repetitionLevels,
-                       int[] recordOffsets, int maxDefinitionLevel, int recordCount) implements TypedColumnData {
+                       int[] recordOffsets, BitSet nulls, int maxDefinitionLevel, int recordCount) implements TypedColumnData {
+        /** Convenience constructor for flat schemas. */
         public FloatColumn(ColumnSchema column, float[] values, int[] definitionLevels, int maxDefinitionLevel, int recordCount) {
-            this(column, values, definitionLevels, null, null, maxDefinitionLevel, recordCount);
+            this(column, values, definitionLevels, null, null,
+                    computeNulls(definitionLevels, maxDefinitionLevel, values.length),
+                    maxDefinitionLevel, recordCount);
+        }
+
+        /** Convenience constructor for nested schemas. */
+        public FloatColumn(ColumnSchema column, float[] values, int[] definitionLevels, int[] repetitionLevels,
+                           int[] recordOffsets, int maxDefinitionLevel, int recordCount) {
+            this(column, values, definitionLevels, repetitionLevels, recordOffsets,
+                    computeNulls(definitionLevels, maxDefinitionLevel, values.length),
+                    maxDefinitionLevel, recordCount);
         }
 
         public float get(int index) {
@@ -137,9 +194,20 @@ public sealed interface TypedColumnData {
     }
 
     record DoubleColumn(ColumnSchema column, double[] values, int[] definitionLevels, int[] repetitionLevels,
-                        int[] recordOffsets, int maxDefinitionLevel, int recordCount) implements TypedColumnData {
+                        int[] recordOffsets, BitSet nulls, int maxDefinitionLevel, int recordCount) implements TypedColumnData {
+        /** Convenience constructor for flat schemas. */
         public DoubleColumn(ColumnSchema column, double[] values, int[] definitionLevels, int maxDefinitionLevel, int recordCount) {
-            this(column, values, definitionLevels, null, null, maxDefinitionLevel, recordCount);
+            this(column, values, definitionLevels, null, null,
+                    computeNulls(definitionLevels, maxDefinitionLevel, values.length),
+                    maxDefinitionLevel, recordCount);
+        }
+
+        /** Convenience constructor for nested schemas. */
+        public DoubleColumn(ColumnSchema column, double[] values, int[] definitionLevels, int[] repetitionLevels,
+                            int[] recordOffsets, int maxDefinitionLevel, int recordCount) {
+            this(column, values, definitionLevels, repetitionLevels, recordOffsets,
+                    computeNulls(definitionLevels, maxDefinitionLevel, values.length),
+                    maxDefinitionLevel, recordCount);
         }
 
         public double get(int index) {
@@ -158,9 +226,20 @@ public sealed interface TypedColumnData {
     }
 
     record BooleanColumn(ColumnSchema column, boolean[] values, int[] definitionLevels, int[] repetitionLevels,
-                         int[] recordOffsets, int maxDefinitionLevel, int recordCount) implements TypedColumnData {
+                         int[] recordOffsets, BitSet nulls, int maxDefinitionLevel, int recordCount) implements TypedColumnData {
+        /** Convenience constructor for flat schemas. */
         public BooleanColumn(ColumnSchema column, boolean[] values, int[] definitionLevels, int maxDefinitionLevel, int recordCount) {
-            this(column, values, definitionLevels, null, null, maxDefinitionLevel, recordCount);
+            this(column, values, definitionLevels, null, null,
+                    computeNulls(definitionLevels, maxDefinitionLevel, values.length),
+                    maxDefinitionLevel, recordCount);
+        }
+
+        /** Convenience constructor for nested schemas. */
+        public BooleanColumn(ColumnSchema column, boolean[] values, int[] definitionLevels, int[] repetitionLevels,
+                             int[] recordOffsets, int maxDefinitionLevel, int recordCount) {
+            this(column, values, definitionLevels, repetitionLevels, recordOffsets,
+                    computeNulls(definitionLevels, maxDefinitionLevel, values.length),
+                    maxDefinitionLevel, recordCount);
         }
 
         public boolean get(int index) {
@@ -179,9 +258,20 @@ public sealed interface TypedColumnData {
     }
 
     record ByteArrayColumn(ColumnSchema column, byte[][] values, int[] definitionLevels, int[] repetitionLevels,
-                           int[] recordOffsets, int maxDefinitionLevel, int recordCount) implements TypedColumnData {
+                           int[] recordOffsets, BitSet nulls, int maxDefinitionLevel, int recordCount) implements TypedColumnData {
+        /** Convenience constructor for flat schemas. */
         public ByteArrayColumn(ColumnSchema column, byte[][] values, int[] definitionLevels, int maxDefinitionLevel, int recordCount) {
-            this(column, values, definitionLevels, null, null, maxDefinitionLevel, recordCount);
+            this(column, values, definitionLevels, null, null,
+                    computeNulls(definitionLevels, maxDefinitionLevel, values.length),
+                    maxDefinitionLevel, recordCount);
+        }
+
+        /** Convenience constructor for nested schemas. */
+        public ByteArrayColumn(ColumnSchema column, byte[][] values, int[] definitionLevels, int[] repetitionLevels,
+                               int[] recordOffsets, int maxDefinitionLevel, int recordCount) {
+            this(column, values, definitionLevels, repetitionLevels, recordOffsets,
+                    computeNulls(definitionLevels, maxDefinitionLevel, values.length),
+                    maxDefinitionLevel, recordCount);
         }
 
         public byte[] get(int index) {
