@@ -631,23 +631,4 @@ public class ColumnValueIterator {
     public boolean hasMore() {
         return !exhausted && ensurePageLoaded();
     }
-
-    /**
-     * Check if this iterator's cursor needs pages from the next file.
-     * Used for coordinated cross-file transitions.
-     *
-     * @return true if the underlying cursor has exhausted current file pages
-     */
-    public boolean needsNextFilePages() {
-        return pageCursor.needsNextFilePages();
-    }
-
-    /**
-     * Add pages from the next file to this iterator's cursor.
-     * Should be called after all columns have finished their current batch
-     * to ensure synchronized transitions.
-     */
-    public void addNextFilePages() {
-        pageCursor.addNextFilePages();
-    }
 }

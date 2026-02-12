@@ -26,6 +26,9 @@ import dev.morling.hardwood.reader.HardwoodContext;
  *   <li>If nextPage() has to wait for a page (miss), depth increases</li>
  * </ul>
  * This ensures slow-to-decode columns automatically get more prefetch parallelism.
+ * <p>
+ * For multi-file reading, the cursor automatically fetches pages from the next file
+ * when the remaining pages in the current file fall below the prefetch depth.
  */
 public class PageCursor {
 
@@ -34,7 +37,7 @@ public class PageCursor {
     private static final int INITIAL_PREFETCH_DEPTH = 2;
     private static final int MAX_PREFETCH_DEPTH = 8;
     private static final int HITS_TO_DECREASE = 20;
-    private static final int MISSES_TO_INCREASE = 2;
+    private static final int MISSES_TO_INCREASE = 1;
 
     private final ArrayList<PageInfo> pageInfos;
     private final HardwoodContext context;
@@ -44,17 +47,17 @@ public class PageCursor {
     private PageReader pageReader;
     private int nextPageIndex = 0;
 
-    // Cross-file prefetching support
-    private final CrossFilePrefetchCoordinator crossFileCoordinator;
+    // Multi-file support
+    private final FileManager fileManager;
+    private int currentFileIndex = 0;
+    private int currentFileEndIndex; // Exclusive: pages [0, currentFileEndIndex) belong to current file
+    private PageReader nextFileReader; // Reader for prefetched next file (null if not yet fetched)
 
     // Adaptive prefetch queue
     private final Deque<CompletableFuture<Page>> prefetchQueue = new ArrayDeque<>();
     private int targetPrefetchDepth = INITIAL_PREFETCH_DEPTH;
     private int hitCount = 0;
     private int missCount = 0;
-
-    // Flag indicating this cursor needs pages from next file (set during iteration, acted on at batch boundary)
-    private boolean pendingNextFilePages = false;
 
     /**
      * Creates a PageCursor for single-file reading.
@@ -64,20 +67,22 @@ public class PageCursor {
     }
 
     /**
-     * Creates a PageCursor with optional cross-file prefetching support.
+     * Creates a PageCursor with optional multi-file support.
      *
      * @param pageInfos initial pages from the first file
      * @param context hardwood context with executor
-     * @param crossFileCoordinator coordinator for getting pages from next files (may be null)
-     * @param projectedColumnIndex the projected column index for cross-file page requests
+     * @param fileManager file manager for fetching pages from subsequent files (may be null)
+     * @param projectedColumnIndex the projected column index for multi-file page requests
      */
     public PageCursor(List<PageInfo> pageInfos, HardwoodContext context,
-                      CrossFilePrefetchCoordinator crossFileCoordinator, int projectedColumnIndex) {
+                      FileManager fileManager, int projectedColumnIndex) {
         this.pageInfos = new ArrayList<>(pageInfos);
         this.context = context;
         this.executor = context.executor();
-        this.crossFileCoordinator = crossFileCoordinator;
+        this.fileManager = fileManager;
         this.projectedColumnIndex = projectedColumnIndex;
+        this.currentFileEndIndex = pageInfos.size();
+
         if (pageInfos.isEmpty()) {
             this.columnName = "unknown";
             this.pageReader = null;
@@ -98,7 +103,11 @@ public class PageCursor {
      * Check if there are more pages available.
      */
     public boolean hasNext() {
-        return nextPageIndex < pageInfos.size() || !prefetchQueue.isEmpty();
+        if (!prefetchQueue.isEmpty() || nextPageIndex < pageInfos.size()) {
+            return true;
+        }
+        // Queue empty and current pages exhausted - check if there are more files
+        return fileManager != null && fileManager.hasFile(currentFileIndex + 1);
     }
 
     /**
@@ -109,12 +118,27 @@ public class PageCursor {
     public Page nextPage() {
         if (prefetchQueue.isEmpty()) {
             if (nextPageIndex >= pageInfos.size()) {
-                return null;
+                // Current file exhausted - try to load next file (blocking if needed)
+                if (!tryLoadNextFileBlocking()) {
+                    return null; // Truly exhausted
+                }
+                // Pages were added from next file, try to fill prefetch queue
+                fillPrefetchQueue();
+                if (prefetchQueue.isEmpty()) {
+                    // Still empty - decode synchronously
+                    if (nextPageIndex >= pageInfos.size()) {
+                        return null;
+                    }
+                    return decodePage(pageInfos.get(nextPageIndex++));
+                }
+                // Fall through to get from prefetch queue
             }
-            // Queue empty but pages remain - decode synchronously and increase depth
-            LOG.log(System.Logger.Level.DEBUG, "Prefetch queue empty for column ''{0}''", columnName);
-            targetPrefetchDepth = Math.min(targetPrefetchDepth + 1, MAX_PREFETCH_DEPTH);
-            return decodePage(pageInfos.get(nextPageIndex++));
+            else {
+                // Queue empty but pages remain - decode synchronously and increase depth
+                LOG.log(System.Logger.Level.DEBUG, "Prefetch queue empty for column ''{0}''", columnName);
+                targetPrefetchDepth = Math.min(targetPrefetchDepth + 1, MAX_PREFETCH_DEPTH);
+                return decodePage(pageInfos.get(nextPageIndex++));
+            }
         }
 
         CompletableFuture<Page> future = prefetchQueue.pollFirst();
@@ -150,97 +174,142 @@ public class PageCursor {
 
     /**
      * Fill the prefetch queue up to targetPrefetchDepth.
-     * If cross-file coordinator is available and current file pages are exhausted,
-     * marks this cursor as pending next file pages (to be added at batch boundary).
+     * <p>
+     * Proactively fetches pages from the next file when remaining pages in the current
+     * file fall below the prefetch depth. File boundaries are tracked to ensure each
+     * page is decoded with the correct PageReader.
+     * <p>
+     * The next file fetch is non-blocking: pages are only added if the file is already
+     * loaded. This prevents one column from blocking while waiting for file loading,
+     * which would drain its prefetch queue and cause misses.
      */
     private void fillPrefetchQueue() {
-        // Fill from current file's pages
+        // Proactively fetch next file if current file is running low
+        // Only fetch if we haven't already fetched it (nextFileReader == null)
+        int pagesRemainingInCurrentFile = currentFileEndIndex - nextPageIndex;
+        if (fileManager != null
+                && nextFileReader == null
+                && pagesRemainingInCurrentFile < targetPrefetchDepth
+                && fileManager.hasFile(currentFileIndex + 1)) {
+
+            // Ensure the next file is being loaded (non-blocking)
+            fileManager.ensureFileLoading(currentFileIndex + 1);
+
+            // Only get pages if file is already ready (non-blocking check)
+            // This prevents blocking which would drain the prefetch queue and cause misses
+            if (fileManager.isFileReady(currentFileIndex + 1)) {
+                List<PageInfo> nextFilePages = fileManager.getPages(currentFileIndex + 1, projectedColumnIndex);
+                if (nextFilePages != null && !nextFilePages.isEmpty()) {
+                    LOG.log(System.Logger.Level.DEBUG,
+                            "Fetching pages from file {0} for column ''{1}'', adding {2} pages",
+                            currentFileIndex + 1, columnName, nextFilePages.size());
+
+                    // Create PageReader for the new file (don't update this.pageReader yet)
+                    PageInfo firstNewPage = nextFilePages.get(0);
+                    if (pageReader == null || !pageReader.isCompatibleWith(firstNewPage.columnMetaData())) {
+                        nextFileReader = new PageReader(
+                                firstNewPage.columnMetaData(),
+                                firstNewPage.columnSchema(),
+                                context.decompressorFactory());
+                    }
+                    else {
+                        // Same metadata, can reuse current reader
+                        nextFileReader = pageReader;
+                    }
+
+                    // Add pages from next file (currentFileEndIndex stays the same - it marks the boundary)
+                    pageInfos.addAll(nextFilePages);
+                }
+            }
+            // If file not ready, we'll try again next time fillPrefetchQueue is called
+        }
+
+        // Fill prefetch queue from available pages
         while (prefetchQueue.size() < targetPrefetchDepth && nextPageIndex < pageInfos.size()) {
+            // Check if we're crossing into the next file
+            if (nextPageIndex >= currentFileEndIndex && nextFileReader != null) {
+                // Switch to next file's reader
+                pageReader = nextFileReader;
+                nextFileReader = null;
+                currentFileIndex++;
+                currentFileEndIndex = pageInfos.size(); // Update boundary for potential next file
+                LOG.log(System.Logger.Level.DEBUG,
+                        "Switched to file {0} reader for column ''{1}''",
+                        currentFileIndex, columnName);
+            }
+
             int pageIndex = nextPageIndex++;
+            PageReader reader = this.pageReader;
             prefetchQueue.addLast(CompletableFuture.supplyAsync(
-                    () -> decodePage(pageInfos.get(pageIndex)), executor));
-        }
-
-        // If queue not full and current file exhausted, mark as needing next file pages
-        // Don't add pages here - that happens at batch boundary to keep all columns in sync
-        if (crossFileCoordinator != null && prefetchQueue.size() < targetPrefetchDepth
-                && nextPageIndex >= pageInfos.size() && !pendingNextFilePages) {
-            pendingNextFilePages = true;
-            LOG.log(System.Logger.Level.DEBUG,
-                    "Column ''{0}'' marked as pending next file pages", columnName);
+                    () -> decodePage(pageInfos.get(pageIndex), reader), executor));
         }
     }
 
     /**
-     * Check if this cursor needs pages from the next file.
+     * Tries to load pages from the next file, blocking if necessary.
+     * Called when we've exhausted the current file's pages and need more.
      *
-     * @return true if this cursor has exhausted current file pages and needs more
+     * @return true if pages were added from the next file, false if no more files
      */
-    public boolean needsNextFilePages() {
-        return pendingNextFilePages;
-    }
-
-    /**
-     * Check if the prefetch queue is running low and we're about to need next file pages.
-     * Used by ColumnValueIterator to stop reading before triggering file transition.
-     *
-     * @return true if the queue is low and current file pages are nearly exhausted
-     */
-    public boolean isNearFileTransition() {
-        // We're near a file transition if:
-        // 1. We have a cross-file coordinator with more files available
-        // 2. All current file pages have been queued (nextPageIndex >= pageInfos.size())
-        // 3. The prefetch queue is running low (less than half full)
-        return crossFileCoordinator != null
-                && crossFileCoordinator.hasMoreFiles()
-                && nextPageIndex >= pageInfos.size()
-                && prefetchQueue.size() < targetPrefetchDepth / 2;
-    }
-
-    /**
-     * Add pages from the next file to this cursor.
-     * Called from MultiFileRowReader at batch boundaries to ensure all columns transition together.
-     */
-    public void addNextFilePages() {
-        if (!pendingNextFilePages || crossFileCoordinator == null) {
-            return;
+    private boolean tryLoadNextFileBlocking() {
+        if (fileManager == null || !fileManager.hasFile(currentFileIndex + 1)) {
+            return false;
         }
 
-        List<PageInfo> nextFilePages = crossFileCoordinator.getNextFilePages(projectedColumnIndex);
-        if (nextFilePages != null && !nextFilePages.isEmpty()) {
-            LOG.log(System.Logger.Level.DEBUG,
-                    "Cross-file prefetch for column ''{0}'', adding {1} pages from next file",
-                    columnName, nextFilePages.size());
-
-            // Update PageReader for the new file's column metadata if different
-            PageInfo firstNewPage = nextFilePages.get(0);
-            if (pageReader == null || !pageReader.isCompatibleWith(firstNewPage.columnMetaData())) {
-                pageReader = new PageReader(
-                        firstNewPage.columnMetaData(),
-                        firstNewPage.columnSchema(),
-                        context.decompressorFactory());
-            }
-
-            // Extend pageInfos with next file's pages
-            pageInfos.addAll(nextFilePages);
-
-            // Fill the prefetch queue from the new pages
-            while (prefetchQueue.size() < targetPrefetchDepth && nextPageIndex < pageInfos.size()) {
-                int pageIndex = nextPageIndex++;
-                prefetchQueue.addLast(CompletableFuture.supplyAsync(
-                        () -> decodePage(pageInfos.get(pageIndex)), executor));
-            }
+        // Already have pages from next file?
+        if (nextFileReader != null) {
+            return true; // Pages already added to pageInfos
         }
 
-        pendingNextFilePages = false;
+        LOG.log(System.Logger.Level.DEBUG,
+                "Blocking on next file {0} for column ''{1}''",
+                currentFileIndex + 1, columnName);
+
+        // Block on getting pages from next file
+        List<PageInfo> nextFilePages = fileManager.getPages(currentFileIndex + 1, projectedColumnIndex);
+        if (nextFilePages == null || nextFilePages.isEmpty()) {
+            return false;
+        }
+
+        // Create PageReader for the new file
+        PageInfo firstNewPage = nextFilePages.get(0);
+        if (pageReader == null || !pageReader.isCompatibleWith(firstNewPage.columnMetaData())) {
+            nextFileReader = new PageReader(
+                    firstNewPage.columnMetaData(),
+                    firstNewPage.columnSchema(),
+                    context.decompressorFactory());
+        }
+        else {
+            nextFileReader = pageReader;
+        }
+
+        // Add pages from next file
+        pageInfos.addAll(nextFilePages);
+
+        LOG.log(System.Logger.Level.DEBUG,
+                "Loaded {0} pages from file {1} for column ''{2}''",
+                nextFilePages.size(), currentFileIndex + 1, columnName);
+
+        return true;
     }
 
     /**
-     * Decode a page from its PageInfo.
+     * Decode a page from its PageInfo using the current pageReader.
+     * Used for synchronous decoding when the prefetch queue is empty.
      */
     private Page decodePage(PageInfo pageInfo) {
+        return decodePage(pageInfo, pageReader);
+    }
+
+    /**
+     * Decode a page from its PageInfo using the specified PageReader.
+     * The reader is passed explicitly to ensure pages are decoded with the correct
+     * reader even when async tasks execute after the pageReader has been updated
+     * for a subsequent file.
+     */
+    private Page decodePage(PageInfo pageInfo, PageReader reader) {
         try {
-            return pageReader.decodePage(pageInfo.pageData(), pageInfo.dictionary());
+            return reader.decodePage(pageInfo.pageData(), pageInfo.dictionary());
         }
         catch (Exception e) {
             throw new RuntimeException("Error decoding page for column " + pageInfo.columnSchema().name(), e);

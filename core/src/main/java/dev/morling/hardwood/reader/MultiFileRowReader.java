@@ -15,19 +15,18 @@ import java.util.concurrent.ForkJoinPool;
 
 import dev.morling.hardwood.internal.reader.BatchDataView;
 import dev.morling.hardwood.internal.reader.ColumnValueIterator;
-import dev.morling.hardwood.internal.reader.CrossFilePrefetchCoordinator;
-import dev.morling.hardwood.internal.reader.FileState;
+import dev.morling.hardwood.internal.reader.FileManager;
 import dev.morling.hardwood.internal.reader.PageCursor;
 import dev.morling.hardwood.internal.reader.TypedColumnData;
 import dev.morling.hardwood.schema.FileSchema;
 import dev.morling.hardwood.schema.ProjectedSchema;
 
 /**
- * A RowReader that reads across multiple Parquet files with cross-file prefetching.
+ * A RowReader that reads across multiple Parquet files with automatic file prefetching.
  * <p>
- * This reader coordinates prefetching so that when pages from file N are running low,
- * pages from file N+1 are already being prefetched. This eliminates prefetch queue
- * misses at file boundaries.
+ * This reader uses a {@link FileManager} to handle file lifecycle and prefetching.
+ * The next file is automatically prepared while reading the current file, minimizing
+ * latency at file boundaries.
  * </p>
  *
  * <p>Usage:</p>
@@ -43,14 +42,13 @@ import dev.morling.hardwood.schema.ProjectedSchema;
  */
 public class MultiFileRowReader extends AbstractRowReader {
 
-    private static final System.Logger LOG = System.getLogger(MultiFileRowReader.class.getName());
     private static final int BATCH_SIZE = 16384;
 
     private final FileSchema schema;
     private final ProjectedSchema projectedSchema;
     private final HardwoodContext context;
-    private final CrossFilePrefetchCoordinator coordinator;
-    private final FileState firstFileState;
+    private final FileManager fileManager;
+    private final FileManager.InitResult initResult;
 
     // Iterators for each projected column
     private ColumnValueIterator[] iterators;
@@ -69,20 +67,10 @@ public class MultiFileRowReader extends AbstractRowReader {
         }
 
         this.context = context;
-
-        // Create coordinator for all files
-        this.coordinator = new CrossFilePrefetchCoordinator(files, context);
-
-        // Phase 1: Open first file and get schema (keeps channel open)
-        this.schema = coordinator.openFirstFile();
-        this.projectedSchema = ProjectedSchema.create(schema, projection);
-
-        // Phase 2: Scan pages using already-open channel
-        this.firstFileState = coordinator.prepareFirstFile(projectedSchema);
-
-        LOG.log(System.Logger.Level.DEBUG,
-                "MultiFileRowReader created for {0} files, {1} projected columns",
-                files.size(), projectedSchema.getProjectedColumnCount());
+        this.fileManager = new FileManager(files, context);
+        this.initResult = fileManager.initialize(projection);
+        this.schema = initResult.schema();
+        this.projectedSchema = initResult.projectedSchema();
     }
 
     @Override
@@ -99,7 +87,7 @@ public class MultiFileRowReader extends AbstractRowReader {
         for (int i = 0; i < projectedColumnCount; i++) {
             int originalIndex = projectedSchema.toOriginalIndex(i);
             PageCursor pageCursor = new PageCursor(
-                    firstFileState.pageInfosByColumn().get(i), context, coordinator, i);
+                    initResult.firstFileState().pageInfosByColumn().get(i), context, fileManager, i);
             iterators[i] = new ColumnValueIterator(pageCursor, schema.getColumn(originalIndex), schema.isFlatSchema());
         }
 
@@ -113,12 +101,7 @@ public class MultiFileRowReader extends AbstractRowReader {
     @Override
     @SuppressWarnings("unchecked")
     protected boolean loadNextBatch() {
-        // Before reading, check if all columns have exhausted their current file
-        // If so, add next file pages to all columns together
-        coordinateCrossFileTransition();
-
         // Read columns in parallel using ForkJoinPool.commonPool()
-        // This matches SingleFileRowReader's approach and avoids deadlock with prefetch tasks
         CompletableFuture<TypedColumnData>[] futures = new CompletableFuture[iterators.length];
         for (int i = 0; i < iterators.length; i++) {
             final int col = i;
@@ -151,34 +134,9 @@ public class MultiFileRowReader extends AbstractRowReader {
         return batchSize > 0;
     }
 
-    /**
-     * Coordinates cross-file transitions so all columns move to the next file together.
-     * Only adds pages when ALL columns have exhausted their current file pages.
-     * This ensures data alignment across file boundaries.
-     */
-    private void coordinateCrossFileTransition() {
-        // Check if ALL columns need pages from the next file
-        boolean allNeedNextFile = true;
-        for (ColumnValueIterator iterator : iterators) {
-            if (!iterator.needsNextFilePages()) {
-                allNeedNextFile = false;
-                break;
-            }
-        }
-
-        // Only add pages when ALL columns are ready to transition
-        if (allNeedNextFile) {
-            LOG.log(System.Logger.Level.DEBUG,
-                    "All {0} columns ready for cross-file transition", iterators.length);
-            for (ColumnValueIterator iterator : iterators) {
-                iterator.addNextFilePages();
-            }
-        }
-    }
-
     @Override
     public void close() {
         closed = true;
-        coordinator.closeChannels();
+        fileManager.close();
     }
 }

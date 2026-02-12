@@ -23,7 +23,7 @@ import dev.morling.hardwood.metadata.FileMetaData;
  * Utility class for reading Parquet file metadata from a FileChannel.
  * <p>
  * This centralizes the metadata reading logic used by ParquetFileReader,
- * MultiFileRowReader, and CrossFilePrefetchCoordinator.
+ * MultiFileRowReader, and FileManager.
  * </p>
  */
 public final class ParquetMetadataReader {
