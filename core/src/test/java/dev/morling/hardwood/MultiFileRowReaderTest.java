@@ -19,6 +19,7 @@ import dev.morling.hardwood.reader.Hardwood;
 import dev.morling.hardwood.reader.MultiFileRowReader;
 import dev.morling.hardwood.reader.ParquetFileReader;
 import dev.morling.hardwood.reader.RowReader;
+import dev.morling.hardwood.row.PqStruct;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -232,5 +233,147 @@ class MultiFileRowReaderTest {
             // Sum should be (100 + 200 + 300) * 2 = 1200
             assertThat(runningSum).isEqualTo(1200L);
         }
+    }
+
+    // ==================== Non-Flat Schema Tests ====================
+
+    private static final Path NESTED_STRUCT_FILE = Paths.get("src/test/resources/nested_struct_test.parquet");
+
+    @Test
+    void testReadNestedStructSingleFile() throws Exception {
+        List<Path> files = List.of(NESTED_STRUCT_FILE);
+
+        try (Hardwood hardwood = Hardwood.create();
+             MultiFileRowReader reader = hardwood.openAll(files)) {
+
+            // Row 0: id=1, address={street="123 Main St", city="New York", zip=10001}
+            assertThat(reader.hasNext()).isTrue();
+            reader.next();
+            assertThat(reader.getInt("id")).isEqualTo(1);
+            PqStruct address0 = reader.getStruct("address");
+            assertThat(address0).isNotNull();
+            assertThat(address0.getString("street")).isEqualTo("123 Main St");
+            assertThat(address0.getString("city")).isEqualTo("New York");
+            assertThat(address0.getInt("zip")).isEqualTo(10001);
+
+            // Row 1: id=2, address={street="456 Oak Ave", city="Los Angeles", zip=90001}
+            assertThat(reader.hasNext()).isTrue();
+            reader.next();
+            assertThat(reader.getInt("id")).isEqualTo(2);
+            PqStruct address1 = reader.getStruct("address");
+            assertThat(address1).isNotNull();
+            assertThat(address1.getString("street")).isEqualTo("456 Oak Ave");
+            assertThat(address1.getString("city")).isEqualTo("Los Angeles");
+            assertThat(address1.getInt("zip")).isEqualTo(90001);
+
+            // Row 2: id=3, address=null
+            assertThat(reader.hasNext()).isTrue();
+            reader.next();
+            assertThat(reader.getInt("id")).isEqualTo(3);
+            assertThat(reader.isNull("address")).isTrue();
+            assertThat(reader.getStruct("address")).isNull();
+
+            assertThat(reader.hasNext()).isFalse();
+        }
+    }
+
+    @Test
+    void testReadNestedStructMultipleFiles() throws Exception {
+        // Read the same nested struct file multiple times to test cross-file transitions
+        List<Path> files = List.of(NESTED_STRUCT_FILE, NESTED_STRUCT_FILE);
+
+        try (Hardwood hardwood = Hardwood.create();
+             MultiFileRowReader reader = hardwood.openAll(files)) {
+
+            List<Integer> ids = new ArrayList<>();
+            List<String> cities = new ArrayList<>();
+
+            while (reader.hasNext()) {
+                reader.next();
+                ids.add(reader.getInt("id"));
+
+                PqStruct address = reader.getStruct("address");
+                if (address != null) {
+                    cities.add(address.getString("city"));
+                }
+                else {
+                    cities.add(null);
+                }
+            }
+
+            // Should have 6 rows total (3 rows x 2 files)
+            assertThat(ids).hasSize(6);
+            assertThat(ids).containsExactly(1, 2, 3, 1, 2, 3);
+
+            // Cities: New York, Los Angeles, null, New York, Los Angeles, null
+            assertThat(cities).containsExactly(
+                    "New York", "Los Angeles", null,
+                    "New York", "Los Angeles", null
+            );
+        }
+    }
+
+    @Test
+    void testReadNestedStructWithProjection() throws Exception {
+        // Project only the nested struct column (not the id)
+        List<Path> files = List.of(NESTED_STRUCT_FILE, NESTED_STRUCT_FILE);
+
+        try (Hardwood hardwood = Hardwood.create();
+             MultiFileRowReader reader = hardwood.openAll(files, ColumnProjection.columns("address"))) {
+
+            assertThat(reader.getFieldCount()).isEqualTo(1);
+            assertThat(reader.getFieldName(0)).isEqualTo("address");
+
+            List<String> streets = new ArrayList<>();
+
+            while (reader.hasNext()) {
+                reader.next();
+                PqStruct address = reader.getStruct("address");
+                if (address != null) {
+                    streets.add(address.getString("street"));
+                }
+                else {
+                    streets.add(null);
+                }
+            }
+
+            // Should have 6 rows total
+            assertThat(streets).hasSize(6);
+            assertThat(streets).containsExactly(
+                    "123 Main St", "456 Oak Ave", null,
+                    "123 Main St", "456 Oak Ave", null
+            );
+        }
+    }
+
+    @Test
+    void testNestedStructRowCountMatchesSingleFileReading() throws Exception {
+        List<Path> files = List.of(NESTED_STRUCT_FILE, NESTED_STRUCT_FILE);
+
+        // Count rows using MultiFileRowReader
+        long multiFileCount = 0;
+        try (Hardwood hardwood = Hardwood.create();
+             MultiFileRowReader reader = hardwood.openAll(files)) {
+            while (reader.hasNext()) {
+                reader.next();
+                multiFileCount++;
+            }
+        }
+
+        // Count rows using individual readers
+        long singleFileCount = 0;
+        try (Hardwood hardwood = Hardwood.create()) {
+            for (Path file : files) {
+                try (ParquetFileReader fileReader = hardwood.open(file);
+                     RowReader rowReader = fileReader.createRowReader()) {
+                    while (rowReader.hasNext()) {
+                        rowReader.next();
+                        singleFileCount++;
+                    }
+                }
+            }
+        }
+
+        assertThat(multiFileCount).isEqualTo(singleFileCount);
     }
 }
