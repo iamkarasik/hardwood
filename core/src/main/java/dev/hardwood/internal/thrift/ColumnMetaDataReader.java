@@ -51,7 +51,7 @@ public class ColumnMetaDataReader {
             switch (header.fieldId()) {
                 case 1: // type
                     if (header.type() == 0x05) {
-                        type = PhysicalType.fromThriftValue(reader.readI32());
+                        type = ThriftEnumLookup.physicalType(reader.readI32());
                     }
                     else {
                         reader.skipField(header.type());
@@ -61,7 +61,7 @@ public class ColumnMetaDataReader {
                     if (header.type() == 0x09) { // LIST
                         ThriftCompactReader.CollectionHeader listHeader = reader.readListHeader();
                         for (int i = 0; i < listHeader.size(); i++) {
-                            encodings.add(Encoding.fromThriftValue(reader.readI32()));
+                            encodings.add(ThriftEnumLookup.encoding(reader.readI32()));
                         }
                     }
                     else {
@@ -81,7 +81,7 @@ public class ColumnMetaDataReader {
                     break;
                 case 4: // codec
                     if (header.type() == 0x05) {
-                        codec = CompressionCodec.fromThriftValue(reader.readI32());
+                        codec = ThriftEnumLookup.compressionCodec(reader.readI32());
                     }
                     else {
                         reader.skipField(header.type());

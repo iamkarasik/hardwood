@@ -50,7 +50,7 @@ public class DataPageHeaderReader {
                     break;
                 case 2: // encoding
                     if (header.type() == 0x05) {
-                        encoding = Encoding.fromThriftValue(reader.readI32());
+                        encoding = ThriftEnumLookup.encoding(reader.readI32());
                     }
                     else {
                         reader.skipField(header.type());
@@ -58,7 +58,7 @@ public class DataPageHeaderReader {
                     break;
                 case 3: // definition_level_encoding
                     if (header.type() == 0x05) {
-                        definitionLevelEncoding = Encoding.fromThriftValue(reader.readI32());
+                        definitionLevelEncoding = ThriftEnumLookup.encoding(reader.readI32());
                     }
                     else {
                         reader.skipField(header.type());
@@ -66,7 +66,7 @@ public class DataPageHeaderReader {
                     break;
                 case 4: // repetition_level_encoding
                     if (header.type() == 0x05) {
-                        repetitionLevelEncoding = Encoding.fromThriftValue(reader.readI32());
+                        repetitionLevelEncoding = ThriftEnumLookup.encoding(reader.readI32());
                     }
                     else {
                         reader.skipField(header.type());

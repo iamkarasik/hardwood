@@ -42,7 +42,7 @@ public class DictionaryPageHeaderReader {
                     numValues = reader.readI32();
                     break;
                 case 2: // encoding
-                    encoding = Encoding.fromThriftValue(reader.readI32());
+                    encoding = ThriftEnumLookup.encoding(reader.readI32());
                     break;
                 default:
                     reader.skipField(header.type());

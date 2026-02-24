@@ -53,7 +53,7 @@ public class DataPageHeaderV2Reader {
                     numRows = reader.readI32();
                     break;
                 case 4: // encoding
-                    encoding = Encoding.fromThriftValue(reader.readI32());
+                    encoding = ThriftEnumLookup.encoding(reader.readI32());
                     break;
                 case 5: // definition_levels_byte_length
                     definitionLevelsByteLength = reader.readI32();

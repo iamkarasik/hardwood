@@ -51,7 +51,7 @@ public class SchemaElementReader {
             switch (header.fieldId()) {
                 case 1: // type (optional)
                     if (header.type() == 0x05) { // I32
-                        type = PhysicalType.fromThriftValue(reader.readI32());
+                        type = ThriftEnumLookup.physicalType(reader.readI32());
                     }
                     else {
                         reader.skipField(header.type());
@@ -67,7 +67,7 @@ public class SchemaElementReader {
                     break;
                 case 3: // repetition_type (optional)
                     if (header.type() == 0x05) {
-                        repetitionType = RepetitionType.fromThriftValue(reader.readI32());
+                        repetitionType = ThriftEnumLookup.repetitionType(reader.readI32());
                     }
                     else {
                         reader.skipField(header.type());
@@ -91,7 +91,7 @@ public class SchemaElementReader {
                     break;
                 case 6: // converted_type (optional)
                     if (header.type() == 0x05) { // I32
-                        convertedType = ConvertedType.fromThriftValue(reader.readI32());
+                        convertedType = ThriftEnumLookup.convertedType(reader.readI32());
                     }
                     else {
                         reader.skipField(header.type());

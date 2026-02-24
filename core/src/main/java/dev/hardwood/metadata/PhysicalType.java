@@ -12,31 +12,12 @@ package dev.hardwood.metadata;
  * These represent how data is stored on disk.
  */
 public enum PhysicalType {
-    BOOLEAN(0),
-    INT32(1),
-    INT64(2),
-    INT96(3), // Deprecated, used for legacy timestamp
-    FLOAT(4),
-    DOUBLE(5),
-    BYTE_ARRAY(6),
-    FIXED_LEN_BYTE_ARRAY(7);
-
-    private final int thriftValue;
-
-    PhysicalType(int thriftValue) {
-        this.thriftValue = thriftValue;
-    }
-
-    public int getThriftValue() {
-        return thriftValue;
-    }
-
-    public static PhysicalType fromThriftValue(int value) {
-        for (PhysicalType type : values()) {
-            if (type.thriftValue == value) {
-                return type;
-            }
-        }
-        throw new IllegalArgumentException("Unknown physical type: " + value);
-    }
+    BOOLEAN,
+    INT32,
+    INT64,
+    INT96, // Deprecated, used for legacy timestamp
+    FLOAT,
+    DOUBLE,
+    BYTE_ARRAY,
+    FIXED_LEN_BYTE_ARRAY
 }
