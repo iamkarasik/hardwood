@@ -16,7 +16,7 @@ set -euo pipefail
 #
 #   RELEASE_VERSION      e.g. 1.0.0
 #   DEVELOPMENT_VERSION  e.g. 1.1.0-SNAPSHOT
-#   STAGE                UPLOAD (staging) or PUBLISH (immediate publish)
+#   STAGE                UPLOAD (staging) or FULL (immediate publish)
 #
 # Required environment variables:
 #   JRELEASER_MAVENCENTRAL_USERNAME
@@ -40,7 +40,7 @@ DEVELOPMENT_VERSION="$2"
 STAGE="$3"
 
 if [[ "$STAGE" != "UPLOAD" && "$STAGE" != "PUBLISH" ]]; then
-  echo "Error: STAGE must be UPLOAD or PUBLISH (got '$STAGE')"
+  echo "Error: STAGE must be UPLOAD or FULL (got '$STAGE')"
   exit 1
 fi
 
@@ -100,6 +100,8 @@ echo "Running Maven release:prepare release:perform..."
   -DreleaseVersion="${RELEASE_VERSION}" \
   -DdevelopmentVersion="${DEVELOPMENT_VERSION}" \
   -Dresume=false \
+  -DpushChanges=false \
+  -DlocalCheckout=true \
   -Darguments="-DskipTests"
 git push -u origin "release/${RELEASE_VERSION}"
 
@@ -134,6 +136,7 @@ echo "Merging release branch back into ${BASE_BRANCH}..."
 git checkout "${BASE_BRANCH}"
 git merge --ff-only "release/${RELEASE_VERSION}"
 git push origin "${BASE_BRANCH}"
+git push origin "v${RELEASE_VERSION}"
 git push origin --delete "release/${RELEASE_VERSION}"
 git branch -d "release/${RELEASE_VERSION}"
 

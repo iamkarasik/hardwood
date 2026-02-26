@@ -10,12 +10,12 @@ on:
         description: 'Development version'
         required: true
       stage:
-        description: 'Stage ("UPLOAD" deploys to a staging repo, "PUBLISH" publishes right away)'
+        description: 'Stage ("UPLOAD" deploys to a staging repo, "FULL" publishes right away)'
         required: true
         type: choice
         options:
           - 'UPLOAD'
-          - 'PUBLISH'
+          - 'FULL'
 
 jobs:
   release:
