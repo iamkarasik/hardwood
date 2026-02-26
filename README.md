@@ -9,7 +9,7 @@ Goals of the project are:
 * Be fast: As fast or faster as parquet-java
 * Be complete: Add a Parquet file writer (after 1.0)
 
-Latest version: 1.0.0-SNAPSHOT, 2025-01-31
+Latest version: 1.0.0.Alpha1, 2026-02-26
 
 ## Set-Up
 
@@ -28,7 +28,7 @@ Import it in your dependency management so you can declare Hardwood dependencies
         <dependency>
             <groupId>dev.hardwood</groupId>
             <artifactId>hardwood-bom</artifactId>
-            <version>1.0.0-SNAPSHOT</version>
+            <version>1.0.0.Alpha1</version>
             <type>pom</type>
             <scope>import</scope>
         </dependency>
@@ -40,7 +40,7 @@ Import it in your dependency management so you can declare Hardwood dependencies
 
 ```groovy
 dependencies {
-    implementation platform('dev.hardwood:hardwood-bom:1.0.0-SNAPSHOT')
+    implementation platform('dev.hardwood:hardwood-bom:1.0.0.Alpha1')
 }
 ```
 
@@ -63,14 +63,14 @@ If you prefer not to use the BOM, you can specify the version directly:
 <dependency>
     <groupId>dev.hardwood</groupId>
     <artifactId>hardwood-core</artifactId>
-    <version>1.0.0-SNAPSHOT</version>
+    <version>1.0.0.Alpha1</version>
 </dependency>
 ```
 
 **Gradle:**
 
 ```groovy
-implementation 'dev.hardwood:hardwood-core:1.0.0-SNAPSHOT'
+implementation 'dev.hardwood:hardwood-core:1.0.0.Alpha1'
 ```
 
 ### Logging
