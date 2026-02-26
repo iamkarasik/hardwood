@@ -13,6 +13,8 @@ Latest version: 1.0.0-SNAPSHOT, 2025-01-31
 
 ## Set-Up
 
+Hardwood runs on Java 21 or newer; Java 25 is recommended for best performance.
+
 ### Using the BOM (Bill of Materials)
 
 The `hardwood-bom` manages versions for all Hardwood modules and their optional runtime dependencies.
@@ -70,6 +72,11 @@ If you prefer not to use the BOM, you can specify the version directly:
 ```groovy
 implementation 'dev.hardwood:hardwood-core:1.0.0-SNAPSHOT'
 ```
+
+### Logging
+
+Hardwood uses the Java Platform Logging API (`System.Logger`).
+Bindings are available for all popular logger implementations, for instance for [log4j 2](https://mvnrepository.com/artifact/org.apache.logging.log4j/log4j-jpl).
 
 ### Compression Libraries
 
