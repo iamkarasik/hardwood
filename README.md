@@ -1,18 +1,15 @@
 # Hardwood
 
-A minimal dependency parser for the Apache Parquet file format.
+_A parser for the Apache Parquet file format, optimized for minimal dependencies and great performance._
 
-## Project Vision
-
-Now:
+Goals of the project are:
 
 * Be light-weight: Implement the Parquet file format avoiding any 3rd party dependencies other than for compression algorithms (e.g. Snappy)
 * Be correct: Support all Parquet files which are supported by the canonical [parquet-java](https://github.com/apache/parquet-java) library
-
-In the future:
-
 * Be fast: As fast or faster as parquet-java
-* Be complete: Add a Parquet file writer
+* Be complete: Add a Parquet file writer (after 1.0)
+
+Latest version: 1.0.0-SNAPSHOT, 2025-01-31
 
 ## Set-Up
 
